@@ -1,13 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { DbService } from './db.service';
-import { StatusGateway } from '../ws/status.gateway';
 
 @Injectable()
 export class QueueService {
   private processing = false;
   private queue: string[] = [];
 
-  constructor(private db: DbService, private gateway: StatusGateway) {}
+  constructor(private db: DbService) {}
 
   enqueue(id: string) {
     this.queue.push(id);
@@ -20,11 +19,11 @@ export class QueueService {
     if (!next) return;
     this.processing = true;
     this.db.updateStatus(next, 'processing');
-    this.gateway.broadcastStatus();
+  globalThis.__broadcastStatuses?.();
     // Simular procesamiento
     await new Promise(r => setTimeout(r, 2000));
     this.db.updateStatus(next, 'processed');
-    this.gateway.broadcastStatus();
+  globalThis.__broadcastStatuses?.();
     this.processing = false;
     if (this.queue.length) this.processNext();
   }
