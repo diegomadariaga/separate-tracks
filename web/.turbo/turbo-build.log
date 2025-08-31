@@ -3,16 +3,3 @@
 > @separate-tracks/web@0.1.0 build /Users/diegomadariaga/Desktop/repos/separate-tracks/web
 > vite build
 
-[31mfailed to load config from /Users/diegomadariaga/Desktop/repos/separate-tracks/web/vite.config.ts[39m
-[31merror during build:
-Error [ERR_MODULE_NOT_FOUND]: Cannot find package '@nx/vite' imported from /Users/diegomadariaga/Desktop/repos/separate-tracks/web/node_modules/.vite-temp/vite.config.ts.timestamp-1756666034717-da240b04c9734.mjs
-    at Object.getPackageJSONURL (node:internal/modules/package_json_reader:255:9)
-    at packageResolve (node:internal/modules/esm/resolve:767:81)
-    at moduleResolve (node:internal/modules/esm/resolve:853:18)
-    at defaultResolve (node:internal/modules/esm/resolve:983:11)
-    at ModuleLoader.defaultResolve (node:internal/modules/esm/loader:801:12)
-    at #cachedDefaultResolve (node:internal/modules/esm/loader:725:25)
-    at ModuleLoader.resolve (node:internal/modules/esm/loader:708:38)
-    at ModuleLoader.getModuleJobForImport (node:internal/modules/esm/loader:309:38)
-    at #link (node:internal/modules/esm/module_job:208:49)[39m
-[41m[30m ELIFECYCLE [39m[49m [31mCommand failed with exit code 1.[39m

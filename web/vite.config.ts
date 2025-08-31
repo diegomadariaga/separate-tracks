@@ -15,7 +15,7 @@ function copyMarkdownAssets() {
         const src = resolve(patternDir, f);
         if (existsSync(src)) {
           const dest = resolve(__dirname, '../dist/web', f);
-          try { copyFileSync(src, dest); } catch (e) {
+          try { copyFileSync(src, dest); } catch {
             // ignore copy errors
           }
         }
