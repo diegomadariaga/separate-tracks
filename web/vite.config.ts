@@ -1,8 +1,28 @@
 /// <reference types='vitest' />
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import { nxViteTsPaths } from '@nx/vite/plugins/nx-tsconfig-paths.plugin';
-import { nxCopyAssetsPlugin } from '@nx/vite/plugins/nx-copy-assets.plugin';
+import tsconfigPaths from 'vite-tsconfig-paths';
+import { copyFileSync, existsSync } from 'fs';
+import { resolve } from 'path';
+
+function copyMarkdownAssets() {
+  return {
+    name: 'copy-md-assets',
+    buildStart() {
+      const patternDir = __dirname;
+      const mdFiles = ['README.md'];
+      for (const f of mdFiles) {
+        const src = resolve(patternDir, f);
+        if (existsSync(src)) {
+          const dest = resolve(__dirname, '../dist/web', f);
+          try { copyFileSync(src, dest); } catch (e) {
+            // ignore copy errors
+          }
+        }
+      }
+    }
+  };
+}
 
 export default defineConfig(() => ({
   root: __dirname,
@@ -15,7 +35,7 @@ export default defineConfig(() => ({
     port: 4200,
     host: 'localhost',
   },
-  plugins: [react(), nxViteTsPaths(), nxCopyAssetsPlugin(['*.md'])],
+  plugins: [react(), tsconfigPaths(), copyMarkdownAssets()],
   // Uncomment this if you are using workers.
   // worker: {
   //  plugins: [ nxViteTsPaths() ],

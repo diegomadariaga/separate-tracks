@@ -1,0 +1,5 @@
+
+
+> @separate-tracks/shared-types@0.1.0 build /Users/diegomadariaga/Desktop/repos/separate-tracks/shared-types
+> tsc -p tsconfig.lib.json
+
