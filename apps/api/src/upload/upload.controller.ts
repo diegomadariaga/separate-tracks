@@ -21,7 +21,7 @@ export class UploadController {
       }
     })
   }))
-  async upload(@UploadedFile() file: Express.Multer.File) {
+  async upload(@UploadedFile() file: any) {
     const record = this.db.insertFile({
       originalName: file.originalname,
       path: file.path,
