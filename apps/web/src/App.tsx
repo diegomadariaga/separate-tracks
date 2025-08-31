@@ -8,8 +8,8 @@ import { useStatusSocket } from './hooks/useStatusSocket';
 import { ThemeToggle } from './components/ThemeToggle';
 import { YouTubeDownloadForm } from './components/YouTubeDownloadForm';
 
-const WS_URL = 'ws://localhost:3000/ws/status';
-const API_URL = 'http://localhost:3000';
+const API_URL = (import.meta as any).env.VITE_API_URL || '';
+const WS_URL = (import.meta as any).env.VITE_WS_URL || (API_URL.replace(/^http/, 'ws') + '/ws/status');
 
 export const App: React.FC = () => {
   const [files, setFiles] = useState<FileRecord[]>([]);
@@ -17,7 +17,7 @@ export const App: React.FC = () => {
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch(API_URL + '/files');
+  const res = await fetch(API_URL + '/files');
       if (res.ok) setFiles(await res.json());
     } catch {}
   }, []);

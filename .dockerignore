@@ -1,0 +1,15 @@
+node_modules
+pnpm-store
+.pnpm-store
+**/node_modules
+.git
+.gitignore
+Dockerfile
+**/dist
+uploads
+.tmp
+.cache
+.eslintcache
+.vscode
+.idea
+coverage

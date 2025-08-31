@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Button } from '@repo/ui';
 
-const API_URL = 'http://localhost:3000';
+const API_URL = (import.meta as any).env.VITE_API_URL || '';
 
 export const YouTubeDownloadForm: React.FC = () => {
   const [url, setUrl] = useState('');
