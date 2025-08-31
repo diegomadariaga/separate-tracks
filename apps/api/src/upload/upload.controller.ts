@@ -1,4 +1,4 @@
-import { Controller, Post, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { Controller, Post, UploadedFile, UseInterceptors, Delete, Param, BadRequestException, NotFoundException } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname } from 'path';
@@ -29,5 +29,21 @@ export class UploadController {
     });
     this.queue.enqueue(record.id);
     return { id: record.id, status: record.status };
+  }
+
+  @Delete(':id')
+  cancel(@Param('id') id: string) {
+    const exists = this.db.list().some(r => r.id === id);
+    if (!exists) throw new NotFoundException('Archivo no encontrado');
+    const ok = this.queue.cancel(id);
+    if (!ok) throw new BadRequestException('No se pudo cancelar');
+    return { id, status: 'failed', cancelled: true };
+  }
+
+  @Post(':id/retry')
+  retry(@Param('id') id: string) {
+    const ok = this.queue.retry(id);
+    if (!ok) throw new BadRequestException('No se puede reintentar');
+    return { id, status: 'queued', retried: true };
   }
 }
