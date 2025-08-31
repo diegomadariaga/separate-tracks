@@ -1,6 +1,7 @@
 import { Controller, Post, UploadedFile, UseInterceptors, Delete, Param, BadRequestException, NotFoundException } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
+import type { Request } from 'express';
 import { extname } from 'path';
 import { v4 as uuid } from 'uuid';
 import { QueueService } from './queue.service';
@@ -14,14 +15,14 @@ export class UploadController {
   @UseInterceptors(FileInterceptor('file', {
     storage: diskStorage({
       destination: './uploads',
-      filename: (_req, file, cb) => {
+      filename: (_req: Request, file: Express.Multer.File, cb: (error: Error | null, filename: string) => void) => {
         const id = uuid();
         const filename = id + extname(file.originalname);
         cb(null, filename);
       }
     })
   }))
-  async upload(@UploadedFile() file: any) {
+  async upload(@UploadedFile() file: Express.Multer.File) {
     const record = this.db.insertFile({
       originalName: file.originalname,
       path: file.path,
