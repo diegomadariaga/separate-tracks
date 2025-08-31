@@ -8,6 +8,9 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json"
   },
+  "devDependencies": {
+    "@repo/tsconfig": "workspace:*"
+  },
   "peerDependencies": {
     "react": "^18 || ^19",
     "react-dom": "^18 || ^19"
