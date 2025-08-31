@@ -1,0 +1,10 @@
+{
+  "extends": "@repo/tsconfig/react.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "declaration": true,
+    "declarationDir": "dist",
+    "emitDeclarationOnly": false
+  },
+  "include": ["src"]
+}
