@@ -40,7 +40,7 @@ const UploadArea: React.FC<{ onUploaded: () => void }> = ({ onUploaded }) => {
   }, [onUploaded]);
 
   return (
-    <div style={{ marginBottom: 24 }}>
+    <div className="fade-in" style={{ marginBottom: 40 }}>
       <input
         ref={inputRef}
         type="file"
@@ -52,23 +52,14 @@ const UploadArea: React.FC<{ onUploaded: () => void }> = ({ onUploaded }) => {
         onDragOver={e => { e.preventDefault(); setDragging(true); }}
         onDragLeave={e => { e.preventDefault(); setDragging(false); }}
         onDrop={e => { e.preventDefault(); setDragging(false); onFiles(e.dataTransfer.files); }}
-        style={{
-          padding: 32,
-            border: '2px dashed ' + (dragging ? '#2563eb' : '#94a3b8'),
-            borderRadius: 12,
-            textAlign: 'center',
-            background: dragging ? '#eff6ff' : '#f8fafc',
-            transition: 'all .15s'
-        }}
+        className={dragging ? 'upload-area dragging' : 'upload-area'}
       >
-        <p style={{ margin: 0, fontSize: 14 }}>Arrastra un archivo de audio o</p>
-        <Button style={{ marginTop: 8 }} onClick={() => inputRef.current?.click()}>Selecciona</Button>
+        <p style={{ margin: 0, fontSize: 16, fontWeight: 500 }}>Arrastra un archivo de audio o</p>
+        <Button style={{ marginTop: 18 }} onClick={() => inputRef.current?.click()} size="lg">Selecciona</Button>
         {progress !== null && (
-          <div style={{ marginTop: 12 }}>
-            <div style={{ fontSize: 12 }}>Subiendo: {progress}%</div>
-            <div style={{ height: 6, background: '#e2e8f0', borderRadius: 4, overflow: 'hidden' }}>
-              <div style={{ height: '100%', width: progress + '%', background: '#2563eb', transition: 'width .2s' }} />
-            </div>
+          <div style={{ marginTop: 18, maxWidth: 480, marginLeft: 'auto', marginRight: 'auto' }}>
+            <div style={{ fontSize: 13, letterSpacing: .3 }}>Subiendo: {progress}%</div>
+            <div className="progress-bar"><span style={{ width: progress + '%' }} /></div>
           </div>
         )}
       </div>
@@ -76,31 +67,31 @@ const UploadArea: React.FC<{ onUploaded: () => void }> = ({ onUploaded }) => {
   );
 };
 
-const FileList: React.FC<{ files: FileRecord[] }> = ({ files }) => {
-  return (
-    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+const FileList: React.FC<{ files: FileRecord[] }> = ({ files }) => (
+  <div className="table-wrapper fade-in" style={{ marginTop: 12 }}>
+    <table>
       <thead>
-        <tr style={{ textAlign: 'left', background: '#f1f5f9' }}>
-          <th style={{ padding: '8px 6px', fontSize: 12 }}>Nombre</th>
-          <th style={{ padding: '8px 6px', fontSize: 12 }}>Estado</th>
-          <th style={{ padding: '8px 6px', fontSize: 12 }}>Creado</th>
+        <tr>
+          <th>Nombre</th>
+          <th>Estado</th>
+          <th>Creado</th>
         </tr>
       </thead>
       <tbody>
         {files.map(f => (
-          <tr key={f.id} style={{ borderBottom: '1px solid #e2e8f0' }}>
-            <td style={{ padding: '6px 6px', fontSize: 13 }}>{f.originalName}</td>
-            <td style={{ padding: '6px 6px', fontSize: 13 }}>{f.status}</td>
-            <td style={{ padding: '6px 6px', fontSize: 13 }}>{new Date(f.createdAt).toLocaleString()}</td>
+          <tr key={f.id}>
+            <td>{f.originalName}</td>
+            <td>{f.status}</td>
+            <td>{new Date(f.createdAt).toLocaleString()}</td>
           </tr>
         ))}
         {!files.length && (
-          <tr><td colSpan={3} style={{ padding: 12, fontSize: 12, textAlign: 'center', color: '#64748b' }}>Sin archivos</td></tr>
+          <tr><td colSpan={3} className="muted" style={{ textAlign: 'center', padding: 20, fontSize: 14 }}>Sin archivos</td></tr>
         )}
       </tbody>
     </table>
-  );
-};
+  </div>
+);
 
 export const App: React.FC = () => {
   const [files, setFiles] = useState<FileRecord[]>([]);
@@ -131,10 +122,10 @@ export const App: React.FC = () => {
   }, []);
 
   return (
-    <div style={{ fontFamily: 'system-ui, sans-serif', padding: 32, maxWidth: 800, margin: '0 auto' }}>
-      <h1 style={{ marginTop: 0 }}>Procesamiento de Audio</h1>
+    <div className="container">
+      <h1>Procesamiento de Audio</h1>
       <UploadArea onUploaded={load} />
-      <h2 style={{ fontSize: 16, marginTop: 0 }}>Archivos</h2>
+      <h2>Archivos</h2>
       <FileList files={files} />
     </div>
   );
