@@ -24,6 +24,23 @@
   --container-max: 1100px;
 }
 
+/* Light theme (aplicado añadiendo la clase .theme-light al body) */
+body.theme-light {
+  --bg: #f5f7fa;
+  --bg-alt: #ffffff;
+  --bg-soft: #f1f5f9;
+  --border: #d7dde5;
+  --border-strong: #c3ccd6;
+  --text: #1f2933;
+  --text-dim: #5b6b7c;
+  --primary: #2563eb;
+  --primary-accent: #3b82f6;
+  --primary-hover: #1d4ed8;
+  --danger: #dc2626;
+  background: linear-gradient(140deg,#ffffff,#edf2f7 60%);
+  color: var(--text);
+}
+
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; }
 body {
@@ -67,3 +84,13 @@ p { line-height: 1.55; }
 @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 
 button:focus-visible { outline: none; box-shadow: var(--focus); }
+
+/* Badges de estado */
+.badge { display: inline-block; font-size: 12px; line-height: 1; padding: 4px 8px 5px; border-radius: 999px; font-weight: 500; letter-spacing: .3px; background: var(--bg-soft); color: var(--text-dim); border: 1px solid var(--border); }
+.badge.processing { background: linear-gradient(90deg,#fbbf24,#f59e0b); color: #1f1800; border-color: #f59e0b; }
+.badge.done { background: linear-gradient(90deg,#10b981,#059669); color: #062d21; border-color: #059669; }
+.badge.error { background: linear-gradient(90deg,#ef4444,#dc2626); color: #2d0909; border-color: #dc2626; }
+.badge.pending { background: linear-gradient(90deg,#64748b,#475569); color: #0f141b; border-color: #475569; }
+
+/* Transición suave al cambiar tema */
+body, .table-wrapper, .upload-area, .card { transition: background .4s, color .4s, border-color .4s; }

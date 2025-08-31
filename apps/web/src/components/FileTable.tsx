@@ -1,6 +1,15 @@
 import React from 'react';
 import { FileRecord } from '../types';
 
+const statusToBadgeClass = (status: string) => {
+  const s = status.toLowerCase();
+  if (s.includes('process') || s.includes('working')) return 'processing';
+  if (s.includes('done') || s.includes('complete') || s === 'ok') return 'done';
+  if (s.includes('error') || s.includes('fail')) return 'error';
+  if (s.includes('pend') || s.includes('wait')) return 'pending';
+  return '';
+};
+
 export interface FileTableProps {
   files: FileRecord[];
   emptyLabel?: string;
@@ -22,7 +31,9 @@ export const FileTable: React.FC<FileTableProps> = ({ files, emptyLabel = 'Sin a
           {files.map(f => (
             <tr key={f.id}>
               <td>{f.originalName}</td>
-              <td>{f.status}</td>
+              <td>
+                <span className={['badge', statusToBadgeClass(f.status)].filter(Boolean).join(' ')}>{f.status}</span>
+              </td>
               <td>{new Date(f.createdAt).toLocaleString()}</td>
             </tr>
           ))}

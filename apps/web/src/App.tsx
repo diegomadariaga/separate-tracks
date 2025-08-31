@@ -3,36 +3,16 @@ import { FileRecord } from './types';
 import { FileDropZone } from './components/FileDropZone';
 import { UploadProgress } from './components/UploadProgress';
 import { FileTable } from './components/FileTable';
+import { useUploader } from './hooks/useUploader';
+import { useStatusSocket } from './hooks/useStatusSocket';
+import { ThemeToggle } from './components/ThemeToggle';
 
 const WS_URL = 'ws://localhost:3000/ws/status';
 const API_URL = 'http://localhost:3000';
 
-interface UploadState { progress: number | null; uploading: boolean; }
-
-const useUploader = (onDone: () => void) => {
-  const [state, setState] = useState<UploadState>({ progress: null, uploading: false });
-  const upload = useCallback((file: File) => {
-    const form = new FormData();
-    form.append('file', file);
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', API_URL + '/upload');
-    setState({ progress: 0, uploading: true });
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) {
-        setState(s => ({ ...s, progress: Math.round((e.loaded / e.total) * 100) }));
-      }
-    };
-    const finalize = () => { setState({ progress: null, uploading: false }); onDone(); };
-    xhr.onload = finalize;
-    xhr.onerror = () => { alert('Fallo la subida'); finalize(); };
-    xhr.send(form);
-  }, [onDone]);
-  return { ...state, upload };
-};
-
 export const App: React.FC = () => {
   const [files, setFiles] = useState<FileRecord[]>([]);
-  const { progress, uploading, upload } = useUploader(() => load());
+  const { progress, uploading, upload, cancel, retry, error } = useUploader({ endpoint: API_URL + '/upload', onComplete: () => load() });
 
   const load = useCallback(async () => {
     try {
@@ -42,28 +22,22 @@ export const App: React.FC = () => {
   }, []);
 
   useEffect(() => { load(); }, [load]);
-
-  useEffect(() => {
-    let ws: WebSocket | null = null;
-    const connect = () => {
-      ws = new WebSocket(WS_URL);
-      ws.onmessage = ev => {
-        try {
-          const msg = JSON.parse(ev.data);
-          if (msg.type === 'status') setFiles(msg.data);
-        } catch {}
-      };
-      ws.onclose = () => setTimeout(connect, 2000);
-    };
-    connect();
-    return () => { ws?.close(); };
-  }, []);
+  useStatusSocket({ url: WS_URL, onStatus: (data) => setFiles(data) });
 
   return (
     <div className="container">
+      <ThemeToggle />
       <h1>Procesamiento de Audio</h1>
       <FileDropZone onFileSelected={file => upload(file)} />
-      {progress !== null && <UploadProgress value={progress} />}
+      {progress !== null && (
+        <UploadProgress
+          value={progress}
+          uploading={uploading}
+          error={error}
+          onCancel={cancel}
+          onRetry={retry}
+        />
+      )}
       <h2>Archivos</h2>
       <FileTable files={files} />
     </div>
