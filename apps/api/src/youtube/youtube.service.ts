@@ -41,7 +41,12 @@ export class YoutubeService {
         });
 
         await new Promise<void>((resolve, reject) => {
-            ffmpeg(tempFile).audioBitrate(192).toFormat('mp3').on('error', reject).on('end', resolve).save(finalFile);
+            ffmpeg(tempFile)
+                .audioBitrate(192)
+                .toFormat('mp3')
+                .on('error', (err) => reject(err))
+                .on('end', (_stdout: string | null, _stderr: string | null) => resolve())
+                .save(finalFile);
         });
 
         // Marcar listo para cola
