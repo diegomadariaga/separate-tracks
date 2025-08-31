@@ -1,6 +1,0 @@
-packages:
-  - 'api'
-  - 'web'
-  - 'shared-types'
-autoInstallPeers: true
-strictPeerDependencies: false
