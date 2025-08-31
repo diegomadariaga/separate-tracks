@@ -1,0 +1,10 @@
+{
+  "extends": "@repo/tsconfig/react.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsbuildinfo-web"
+  },
+  "include": ["src"],
+  "references": [
+    { "path": "../../packages/ui" }
+  ]
+}
