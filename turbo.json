@@ -1,20 +1,25 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "tasks": {
+    "dev": {
+      "cache": false,
+      "persistent": true,
+      "dependsOn": ["^dev"],
+      "env": ["PORT"]
+    },
     "build": {
       "dependsOn": ["^build"],
       "outputs": ["dist/**", "build/**"],
+      "env": ["NODE_ENV"],
       "cache": true
     },
-    "dev": {
-      "cache": false,
-      "persistent": true
-    },
     "lint": {
-      "outputs": []
+      "outputs": [],
+      "cache": true
     },
     "test": {
-      "outputs": ["coverage/**"]
+      "outputs": ["coverage/**"],
+      "cache": true
     }
   }
 }
