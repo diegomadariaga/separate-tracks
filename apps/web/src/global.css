@@ -91,6 +91,7 @@ button:focus-visible { outline: none; box-shadow: var(--focus); }
 .badge.done { background: linear-gradient(90deg,#10b981,#059669); color: #062d21; border-color: #059669; }
 .badge.error { background: linear-gradient(90deg,#ef4444,#dc2626); color: #2d0909; border-color: #dc2626; }
 .badge.pending { background: linear-gradient(90deg,#64748b,#475569); color: #0f141b; border-color: #475569; }
+.badge.downloading { background: linear-gradient(90deg,#6366f1,#4f46e5); color: #14163a; border-color: #4f46e5; }
 
 /* Transición suave al cambiar tema */
 body, .table-wrapper, .upload-area, .card { transition: background .4s, color .4s, border-color .4s; }

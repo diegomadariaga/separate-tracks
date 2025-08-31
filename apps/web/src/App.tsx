@@ -6,6 +6,7 @@ import { FileTable } from './components/FileTable';
 import { useUploader } from './hooks/useUploader';
 import { useStatusSocket } from './hooks/useStatusSocket';
 import { ThemeToggle } from './components/ThemeToggle';
+import { YouTubeDownloadForm } from './components/YouTubeDownloadForm';
 
 const WS_URL = 'ws://localhost:3000/ws/status';
 const API_URL = 'http://localhost:3000';
@@ -27,7 +28,8 @@ export const App: React.FC = () => {
   return (
     <div className="container">
       <ThemeToggle />
-      <h1>Procesamiento de Audio</h1>
+  <h1>Procesamiento de Audio</h1>
+  <YouTubeDownloadForm />
       <FileDropZone onFileSelected={file => upload(file)} />
       {progress !== null && (
         <UploadProgress

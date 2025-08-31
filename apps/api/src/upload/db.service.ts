@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 
-export type FileStatus = 'queued' | 'processing' | 'processed' | 'failed';
+export type FileStatus = 'downloading' | 'queued' | 'processing' | 'processed' | 'failed';
 
 export interface FileRecord {
   id: string;

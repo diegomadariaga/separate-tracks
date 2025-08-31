@@ -4,6 +4,7 @@ import { FileRecord } from '../types';
 const statusToBadgeClass = (status: string) => {
   const s = status.toLowerCase();
   if (s.includes('process') || s.includes('working')) return 'processing';
+  if (s.includes('download')) return 'downloading';
   if (s.includes('done') || s.includes('complete') || s === 'ok') return 'done';
   if (s.includes('error') || s.includes('fail')) return 'error';
   if (s.includes('pend') || s.includes('wait')) return 'pending';
