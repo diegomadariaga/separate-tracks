@@ -1,7 +1,6 @@
 import * as React from 'react';
 import { useCallback, useRef, useState } from 'react';
 import { enqueueYoutubeMp3, getApiBase, YoutubeMp3Response } from '../lib/api.js';
-import JobQueue from './JobQueue.js';
 
 interface DownloadState {
   status: 'idle' | 'loading' | 'queued' | 'error';
@@ -63,8 +62,8 @@ export const YouTubeToMp3 = () => {
 
   return (
     <div style={styles.card}>
-      <h2 style={styles.title}>YouTube a MP3</h2>
-      <p style={styles.subtitle}>Solo interfaz (API pendiente)</p>
+  <h2 style={styles.title}>YouTube a MP3</h2>
+  <p style={styles.subtitle}>Convierte y gestiona trabajos en la cola persistente</p>
       <form onSubmit={handleSubmit} style={styles.form}>
         <input
           type="url"
@@ -103,8 +102,8 @@ export const YouTubeToMp3 = () => {
       {state.status === 'loading' && (
         <div style={{ ...styles.alert, ...styles.info }}>{state.message}</div>
       )}
-      <JobQueue />
     </div>
+    
   );
 };
 

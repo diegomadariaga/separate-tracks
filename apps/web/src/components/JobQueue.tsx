@@ -113,7 +113,7 @@ function colorForState(state: string) {
 }
 
 const styles: Record<string, React.CSSProperties> = {
-  wrapper: { marginTop: 32, padding: 16, background: '#1e293b', borderRadius: 12 },
+  wrapper: { width: '100%', boxSizing: 'border-box', margin: '0 auto', padding: '20px 24px', background: '#1e293b', borderRadius: 16, boxShadow: '0 4px 16px -4px rgba(0,0,0,0.5)', color: '#f1f5f9' },
   heading: { margin: '0 0 12px', fontSize: 20 },
   info: { fontSize: 14, opacity: 0.7 },
   list: { listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 12 },
