@@ -56,7 +56,7 @@ export const JobQueue: React.FC<JobQueueProps> = ({ refreshMs = 1200 }) => {
             <li key={job.id} style={styles.item}>
               <div style={styles.topRow}>
                 <div style={styles.titleBlock}>
-                  <strong>{job.title || job.file || job.id}</strong>
+                  <strong>{job.title || job.file || '(cargando título...)'}</strong>
                   <div style={styles.meta}>{job.state} · {percent}% {job.message ? `· ${job.message}` : ''}</div>
                 </div>
                 <div style={styles.actions}>

@@ -40,6 +40,8 @@ export interface JobProgress {
   url?: string;
   downloadPercent?: number; // 0-100 real descarga
   convertPercent?: number; // 0-100 real conversión
+  title?: string;
+  durationSeconds?: number;
 }
 
 @Injectable()
@@ -76,8 +78,8 @@ export class YoutubeService implements OnModuleInit {
       updatedAt: updated.updatedAt,
       stagePercent: updated.stagePercent ? Math.round(updated.stagePercent) : 0,
       outputFile: updated.result?.fileName,
-      title: updated.result?.title,
-      durationSeconds: updated.result?.durationSeconds,
+      title: updated.title || updated.result?.title,
+      durationSeconds: updated.durationSeconds || updated.result?.durationSeconds,
       errorMessage: updated.error,
       downloadPercent: updated.downloadPercent !== undefined ? Math.round(updated.downloadPercent) : undefined,
       convertPercent: updated.convertPercent !== undefined ? Math.round(updated.convertPercent) : undefined,
@@ -99,6 +101,8 @@ export class YoutubeService implements OnModuleInit {
         createdAt: r.createdAt,
         updatedAt: r.updatedAt || r.createdAt,
         url: r.url,
+        title: r.title || undefined,
+        durationSeconds: r.durationSeconds || undefined,
         result: r.outputFile ? { fileName: r.outputFile, path: join(this.mediaDir, r.outputFile), sizeBytes: 0, title: r.title, durationSeconds: r.durationSeconds } : undefined
       };
       if (['downloading', 'converting', 'pending'].includes(r.state)) {
@@ -116,9 +120,8 @@ export class YoutubeService implements OnModuleInit {
     }
     const id = randomUUID();
     const now = Date.now();
-    this.jobs.set(id, { id, state: 'pending', percent: 0, createdAt: now, updatedAt: now, url, message: 'Inicializando' });
-    this.repo.insert({ id, url, state: 'pending', createdAt: now, updatedAt: now, title: undefined, durationSeconds: undefined, outputFile: undefined, errorMessage: null, progress: 0, downloadProgress: 0, convertProgress: 0, message: 'Inicializando', stagePercent: 0 });
-    this.tryStartJob(id);
+    this.jobs.set(id, { id, state: 'queued', percent: 0, createdAt: now, updatedAt: now, url, message: 'En cola (manual)' });
+    this.repo.insert({ id, url, state: 'queued', createdAt: now, updatedAt: now, title: undefined, durationSeconds: undefined, outputFile: undefined, errorMessage: null, progress: 0, downloadProgress: 0, convertProgress: 0, message: 'En cola (manual)', stagePercent: 0 });
     return id;
   }
 
@@ -128,8 +131,20 @@ export class YoutubeService implements OnModuleInit {
     }
     const id = randomUUID();
     const now = Date.now();
-    this.jobs.set(id, { id, state: 'queued', percent: 0, createdAt: now, updatedAt: now, url, message: 'En cola' });
-    this.repo.insert({ id, url, state: 'queued', createdAt: now, updatedAt: now, title: undefined, durationSeconds: undefined, outputFile: undefined, errorMessage: null, progress: 0, downloadProgress: 0, convertProgress: 0, message: 'En cola', stagePercent: 0 });
+    this.jobs.set(id, { id, state: 'queued', percent: 0, createdAt: now, updatedAt: now, url, message: 'En cola (metadata...)' });
+    this.repo.insert({ id, url, state: 'queued', createdAt: now, updatedAt: now, title: undefined, durationSeconds: undefined, outputFile: undefined, errorMessage: null, progress: 0, downloadProgress: 0, convertProgress: 0, message: 'En cola (metadata...)', stagePercent: 0 });
+    // Prefetch metadata asynchronously so title/duration appear antes de iniciar descarga real
+    (async () => {
+      try {
+        const info = await ytdl.getInfo(url);
+        const title = info.videoDetails.title;
+        const durationSeconds = Number(info.videoDetails.lengthSeconds || '0') || undefined;
+        this.persistAndCache(id, { title, durationSeconds, message: 'En cola' });
+      } catch (e) {
+        // ignoramos errores de metadata aquí para no romper la cola; se reintentará al iniciar
+        this.persistAndCache(id, { message: 'En cola' });
+      }
+    })();
     return id;
   }
 
@@ -152,7 +167,6 @@ export class YoutubeService implements OnModuleInit {
     this.controllers.delete(id);
     this.persistAndCache(id, { state: 'canceled', message: 'Cancelado', percent: 100 });
     if (this.currentRunning > 0) this.currentRunning = Math.max(0, this.currentRunning - 1);
-    this.tryDequeue();
   }
 
   deleteJob(id: string): boolean {
@@ -182,6 +196,12 @@ export class YoutubeService implements OnModuleInit {
       }
       throw e;
     }
+    // Persist early metadata (title & duration) so UI can display it while downloading
+    try {
+      const earlyTitle = info.videoDetails.title;
+      const earlyDuration = Number(info.videoDetails.lengthSeconds || '0') || undefined;
+      this.persistAndCache(id, { title: earlyTitle, durationSeconds: earlyDuration });
+    } catch {/* ignore */}
     const titleSlug = info.videoDetails.title.replace(/[^a-z0-9]+/gi, '-').slice(0, 60).replace(/^-|-$/g, '').toLowerCase();
   const fileName = `${titleSlug || 'audio'}-${id}.mp3`;
     const outputPath = join(this.mediaDir, fileName);
@@ -235,7 +255,7 @@ export class YoutubeService implements OnModuleInit {
           const sizeBytes = writeStream.bytesWritten;
           const durationSeconds = Number(info.videoDetails.lengthSeconds || '0') || undefined;
           const result: ConversionResult = { fileName, path: outputPath, sizeBytes, title: info.videoDetails.title, durationSeconds };
-            this.persistAndCache(id, { state: 'done', percent: 100, result, message: 'Completado', downloadPercent: 100, convertPercent: 100 });
+            this.persistAndCache(id, { state: 'done', percent: 100, result, message: 'Completado', downloadPercent: 100, convertPercent: 100, title: info.videoDetails.title, durationSeconds });
         } catch (e: any) {
           bail(e, 'Error finalizando');
         }
@@ -243,7 +263,6 @@ export class YoutubeService implements OnModuleInit {
       .on('close', () => {
         this.controllers.delete(id);
         if (this.currentRunning > 0) this.currentRunning = Math.max(0, this.currentRunning - 1);
-        this.tryDequeue();
       })
       .save(outputPath);
     this.controllers.set(id, { audioStream, writeStream, ffmpeg: ff });
@@ -264,18 +283,12 @@ export class YoutubeService implements OnModuleInit {
   this.persistAndCache(id, { state: 'downloading', message: 'Obteniendo info...' });
       this.currentRunning += 1;
       this.processMp3Job(id, job.url!).catch(err => {
-  this.persistAndCache(id, { state: 'error', error: err instanceof Error ? err.message : String(err), percent: 100 });
+        this.persistAndCache(id, { state: 'error', error: err instanceof Error ? err.message : String(err), percent: 100 });
         if (this.currentRunning > 0) this.currentRunning = Math.max(0, this.currentRunning - 1);
-        this.tryDequeue();
       });
     }
   }
-
-  private tryDequeue() {
-    if (!this.canStartMore()) return;
-    const next = Array.from(this.jobs.values()).find(j => j.state === 'queued');
-    if (next) this.tryStartJob(next.id);
-  }
+  // En modo manual no se auto-desencola; el usuario debe iniciar cada job.
 
   private cleanup() {
     const now = Date.now();

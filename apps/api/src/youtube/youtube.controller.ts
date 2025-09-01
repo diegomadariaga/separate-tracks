@@ -54,8 +54,8 @@ export class YoutubeController {
       convertPercent: j.convertPercent != null ? Number(j.convertPercent.toFixed(2)) : undefined,
       message: j.message,
       file: j.result?.fileName,
-      title: j.result?.title,
-      durationSeconds: j.result?.durationSeconds,
+      title: j.title || j.result?.title,
+      durationSeconds: j.durationSeconds || j.result?.durationSeconds,
       hasFile: !!j.result,
       createdAt: j.createdAt,
       updatedAt: j.updatedAt
@@ -100,6 +100,8 @@ export class YoutubeController {
   stagePercent: job.stagePercent != null ? Number(job.stagePercent.toFixed(2)) : undefined,
       downloadPercent: job.downloadPercent != null ? Number(job.downloadPercent.toFixed(2)) : undefined,
       convertPercent: job.convertPercent != null ? Number(job.convertPercent.toFixed(2)) : undefined,
+      title: job.title || job.result?.title,
+      durationSeconds: job.durationSeconds || job.result?.durationSeconds,
     };
     if (job.state === 'done' && job.result) {
       base.result = {
