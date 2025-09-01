@@ -1,9 +1,10 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
+import { requestYoutubeMp3, getApiBase, YoutubeMp3Response } from '../lib/api';
 
 interface DownloadState {
   status: 'idle' | 'validating' | 'loading' | 'success' | 'error';
   message?: string;
-  downloadUrl?: string;
+  result?: YoutubeMp3Response;
 }
 
 const YT_REGEX = /^(https?:\/\/)?(www\.|m\.)?(youtube\.com\/watch\?v=|youtu\.be\/)[\w-]{11}(&.*)?$/i;
@@ -11,6 +12,7 @@ const YT_REGEX = /^(https?:\/\/)?(www\.|m\.)?(youtube\.com\/watch\?v=|youtu\.be\
 export const YouTubeToMp3: React.FC = () => {
   const [url, setUrl] = useState('');
   const [state, setState] = useState<DownloadState>({ status: 'idle' });
+  const abortRef = useRef<AbortController | null>(null);
 
   const validate = useCallback((value: string) => YT_REGEX.test(value.trim()), []);
 
@@ -24,25 +26,36 @@ export const YouTubeToMp3: React.FC = () => {
       setState({ status: 'error', message: 'URL de YouTube no válida.' });
       return;
     }
-    setState({ status: 'loading', message: 'Preparando conversión...' });
-
-    // Simulación de llamada API (placeholder)
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setState({ status: 'loading', message: 'Convirtiendo…' });
     try {
-      await new Promise(res => setTimeout(res, 1200));
-      // Generamos un link ficticio (real vendrá de la API futura)
-      setState({
-        status: 'success',
-        message: 'Listo para descargar (simulado).',
-        downloadUrl: '#fake-download.mp3'
-      });
-    } catch (err) {
-      setState({ status: 'error', message: 'Error inesperado.' });
+      const timeout = setTimeout(() => controller.abort(), 1000 * 60 * 2); // 2 min
+      const res = await requestYoutubeMp3(url.trim(), controller.signal);
+      clearTimeout(timeout);
+      setState({ status: 'success', message: 'Conversión completa.', result: res });
+    } catch (err: any) {
+      if (controller.signal.aborted) {
+        setState({ status: 'idle', message: 'Cancelado.' });
+      } else {
+        setState({ status: 'error', message: err.message || 'Error inesperado.' });
+      }
+    } finally {
+      abortRef.current = null;
     }
   };
 
   const reset = () => {
     setUrl('');
     setState({ status: 'idle' });
+    if (abortRef.current) abortRef.current.abort();
+  };
+
+  const handleDownload = async () => {
+    if (!state.result) return;
+    const fullUrl = `${getApiBase()}${state.result.downloadUrl}`;
+    // Abrimos en nueva pestaña para desencadenar descarga
+    window.open(fullUrl, '_blank');
   };
 
   return (
@@ -67,6 +80,11 @@ export const YouTubeToMp3: React.FC = () => {
         >
           {state.status === 'loading' ? 'Convirtiendo...' : 'Convertir'}
         </button>
+        {state.status === 'loading' && (
+          <button type="button" onClick={() => abortRef.current?.abort()} style={styles.secondary}>
+            Cancelar
+          </button>
+        )}
         {state.status !== 'idle' && (
           <button type="button" onClick={reset} style={styles.secondary} disabled={state.status === 'loading'}>
             Limpiar
@@ -76,13 +94,13 @@ export const YouTubeToMp3: React.FC = () => {
       {state.status === 'error' && (
         <div style={{ ...styles.alert, ...styles.error }}>{state.message}</div>
       )}
-      {state.status === 'success' && (
+      {state.status === 'success' && state.result && (
         <div style={{ ...styles.alert, ...styles.success }}>
           <span>{state.message}</span>
           <br />
-          <a href={state.downloadUrl} onClick={e => e.preventDefault()} style={styles.link}>
-            Descargar MP3 (simulado)
-          </a>
+          <strong>Archivo:</strong> {state.result.file}
+          <br />
+            <button onClick={handleDownload} style={styles.button}>Descargar MP3</button>
         </div>
       )}
       {state.status === 'loading' && (

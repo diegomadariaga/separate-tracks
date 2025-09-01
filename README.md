@@ -87,5 +87,18 @@ curl -X POST http://localhost:3000/youtube/mp3 \
   -d '{"url":"https://www.youtube.com/watch?v=dQw4w9WgXcQ"}'
 ```
 
+## Integración Frontend -> Backend
+
+Configura la variable en `apps/web/.env` (crear desde `.env.example`):
+```
+VITE_API_URL=http://localhost:3000
+```
+El componente `YouTubeToMp3` ahora:
+- Envía `POST /youtube/mp3`.
+- Muestra estado de conversión y permite cancelar (AbortController + timeout 2min).
+- Ofrece botón de descarga que abre la URL de `downloadUrl`.
+
+Si el backend corre en otro host/puerto, actualiza `VITE_API_URL` y reinicia Vite.
+
 ---
 Generado automáticamente.
