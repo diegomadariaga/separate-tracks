@@ -1,5 +1,5 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
-import * as ytdl from 'ytdl-core';
+import ytdl from 'ytdl-core';
 import ffmpeg from 'fluent-ffmpeg';
 import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
 import { randomUUID } from 'node:crypto';
@@ -40,10 +40,10 @@ export class YoutubeService {
       ffmpeg(audioStream as any)
         .audioBitrate(128)
         .toFormat('mp3')
-        .on('error', err => {
+        .on('error', (err: Error) => {
           if (finished) return;
-            finished = true;
-            reject(new InternalServerErrorException('Error en conversión: ' + err.message));
+          finished = true;
+          reject(new InternalServerErrorException('Error en conversión: ' + err.message));
         })
         .on('end', () => {
           if (finished) return;
@@ -51,8 +51,9 @@ export class YoutubeService {
           try {
             const sizeBytes = writeStream.bytesWritten;
             resolve({ fileName, path: outputPath, sizeBytes });
-          } catch (e: any) {
-            reject(new InternalServerErrorException('Error finalizando: ' + e.message));
+          } catch (e: unknown) {
+            const msg = e instanceof Error ? e.message : String(e);
+            reject(new InternalServerErrorException('Error finalizando: ' + msg));
           }
         })
         .pipe(writeStream, { end: true });

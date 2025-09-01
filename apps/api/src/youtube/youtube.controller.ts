@@ -1,10 +1,9 @@
-import { Controller, Post, Body, Get, Param, NotFoundException } from '@nestjs/common';
+import { Controller, Post, Body, Get, Param, NotFoundException, Res } from '@nestjs/common';
 import { YoutubeService } from './youtube.service.js';
 import { DownloadYoutubeDto } from './youtube.dto.js';
-import { Response } from 'express';
+import type { Response } from 'express';
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { Res } from '@nestjs/common';
 
 @Controller('youtube')
 export class YoutubeController {

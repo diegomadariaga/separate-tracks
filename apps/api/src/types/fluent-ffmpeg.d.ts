@@ -1,0 +1,21 @@
+// Minimal type declarations for fluent-ffmpeg used in this project
+// If @types/fluent-ffmpeg starts working, this file can be removed.
+declare module 'fluent-ffmpeg' {
+  import { Readable, Writable } from 'stream';
+  import { EventEmitter } from 'events';
+
+  interface FfmpegCommand extends EventEmitter {
+    audioBitrate(bitrate: number | string): FfmpegCommand;
+    toFormat(format: string): FfmpegCommand;
+    on(event: 'error', handler: (err: Error) => void): FfmpegCommand;
+    on(event: 'end', handler: () => void): FfmpegCommand;
+    pipe(stream: Writable, options?: { end?: boolean }): Writable;
+  }
+
+  function ffmpeg(input?: string | Readable): FfmpegCommand;
+  namespace ffmpeg {
+    function setFfmpegPath(path: string): void;
+  }
+  export = ffmpeg;
+  export default ffmpeg;
+}
