@@ -1,4 +1,7 @@
 import { Injectable, InternalServerErrorException, Logger, BadRequestException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { YoutubeJobEntity } from './job.entity.js';
 import ytdl from '@distube/ytdl-core';
 import ffmpeg from 'fluent-ffmpeg';
 import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
@@ -48,6 +51,8 @@ export class YoutubeService {
   private readonly maxConcurrent = 3;
   private currentRunning = 0;
   private controllers = new Map<string, { audioStream?: any; ffmpeg?: any; writeStream?: any }>();
+
+  constructor(@InjectRepository(YoutubeJobEntity) private repo: Repository<YoutubeJobEntity>) {}
 
   getJob(id: string): JobProgress | undefined {
     return this.jobs.get(id);
