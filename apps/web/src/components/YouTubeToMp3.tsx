@@ -1,12 +1,12 @@
 import * as React from 'react';
 import { useCallback, useRef, useState } from 'react';
-import { enqueueYoutubeMp3, getApiBase, YoutubeMp3Response } from '../lib/api.js';
+import { enqueueYoutubeMp3 } from '../lib/api.js';
+import { Button } from './ui/Button.js';
 
 interface DownloadState {
   status: 'idle' | 'loading' | 'queued' | 'error';
   message?: string;
   jobId?: string;
-  result?: YoutubeMp3Response; // legacy direct
 }
 
 const YT_REGEX = /^(https?:\/\/)?(www\.|m\.)?(youtube\.com\/watch\?v=|youtu\.be\/)[\w-]{11}(&.*)?$/i;
@@ -53,12 +53,7 @@ export const YouTubeToMp3 = () => {
     if (abortRef.current) abortRef.current.abort();
   };
 
-  const handleDownload = async () => {
-    if (!state.result) return;
-    const fullUrl = `${getApiBase()}${state.result.downloadUrl}`;
-    // Abrimos en nueva pestaña para desencadenar descarga
-    window.open(fullUrl, '_blank');
-  };
+  // Descarga directa legacy eliminada (no usada actualmente)
 
   return (
     <div style={styles.card}>
@@ -75,22 +70,31 @@ export const YouTubeToMp3 = () => {
           aria-label="YouTube URL"
           required
         />
-        <button
+        <Button
           type="submit"
-          style={styles.button}
+          variant="primary"
+          size="md"
+          loading={state.status === 'loading'}
           disabled={state.status === 'loading'}
         >
-          {state.status === 'loading' ? 'Convirtiendo...' : 'Convertir'}
-        </button>
-        {['loading'].includes(state.status) && (
-          <button type="button" onClick={() => abortRef.current?.abort()} style={styles.secondary}>
-            Cancelar
-          </button>
+          Convertir
+        </Button>
+        {state.status === 'loading' && (
+          <Button
+            type="button"
+            variant="secondary"
+            size="md"
+            onClick={() => abortRef.current?.abort()}
+          >Cancelar</Button>
         )}
         {state.status !== 'idle' && (
-          <button type="button" onClick={reset} style={styles.secondary} disabled={state.status === 'loading'}>
-            Limpiar
-          </button>
+          <Button
+            type="button"
+            variant="secondary"
+            size="md"
+            disabled={state.status === 'loading'}
+            onClick={reset}
+          >Limpiar</Button>
         )}
       </form>
       {state.status === 'error' && (
@@ -129,24 +133,7 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#f1f5f9',
     fontSize: 14
   },
-  button: {
-    padding: '10px 18px',
-    borderRadius: 8,
-    background: '#6366f1',
-    color: '#fff',
-    border: 'none',
-    cursor: 'pointer',
-    fontWeight: 600
-  },
-  secondary: {
-    padding: '10px 14px',
-    borderRadius: 8,
-    background: '#334155',
-    color: '#fff',
-    border: 'none',
-    cursor: 'pointer',
-    fontWeight: 500
-  },
+  // button & secondary ahora se gestionan por componente Button
   alert: {
     marginTop: 18,
     padding: '12px 16px',

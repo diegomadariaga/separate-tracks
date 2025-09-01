@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { Button } from './ui/Button.js';
 
 interface ConfirmModalProps {
   open: boolean;
@@ -11,7 +12,16 @@ interface ConfirmModalProps {
   danger?: boolean;
 }
 
-export const ConfirmModal: React.FC<ConfirmModalProps> = ({ open, title, message, confirmText='Confirmar', cancelText='Cancelar', onConfirm, onCancel, danger }) => {
+export const ConfirmModal: React.FC<ConfirmModalProps> = ({
+  open,
+  title,
+  message,
+  confirmText = 'Confirmar',
+  cancelText = 'Cancelar',
+  onConfirm,
+  onCancel,
+  danger
+}) => {
   const dialogRef = React.useRef<HTMLDivElement | null>(null);
   const firstBtnRef = React.useRef<HTMLButtonElement | null>(null);
   React.useEffect(() => {
@@ -43,12 +53,31 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({ open, title, message
   if (!open) return null;
   return (
     <div style={backdropStyle}>
-      <div ref={dialogRef} style={modalStyle} role="dialog" aria-modal="true" aria-labelledby="confirm-title">
-        <h4 id="confirm-title" style={{ margin: '0 0 12px', fontSize: 18 }}>{title}</h4>
-        <div style={{ fontSize: 14, lineHeight: 1.4, marginBottom: 20, whiteSpace: 'pre-line' }}>{message}</div>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
-          <button ref={firstBtnRef} onClick={onCancel} style={btnSecondary}>{cancelText}</button>
-          <button onClick={onConfirm} style={{ ...btnPrimary, background: danger ? '#b91c1c' : btnPrimary.background }}>{confirmText}</button>
+      <div
+        ref={dialogRef}
+        style={modalStyle}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="confirm-title"
+      >
+        <h4 id="confirm-title" style={headingStyle}>{title}</h4>
+        <div style={messageStyle}>{message}</div>
+        <div style={actionsRowStyle}>
+          <Button
+            ref={firstBtnRef as any}
+            onClick={onCancel}
+            variant="secondary"
+            size="md"
+          >
+            {cancelText}
+          </Button>
+          <Button
+            onClick={onConfirm}
+            variant={danger ? 'danger' : 'primary'}
+            size="md"
+          >
+            {confirmText}
+          </Button>
         </div>
       </div>
     </div>
@@ -62,21 +91,19 @@ const backdropStyle: React.CSSProperties = {
 };
 
 const modalStyle: React.CSSProperties = {
-  background: '#1e293b', color: '#f1f5f9', padding: '20px 24px', borderRadius: 12, width: 'min(420px, 90%)', boxShadow: '0 10px 40px -10px rgba(0,0,0,0.6)',
-  transform: 'translateY(4px)', animation: 'popIn .18s ease'
+  background: '#1e293b',
+  color: '#f1f5f9',
+  padding: '20px 24px',
+  borderRadius: 12,
+  width: 'min(420px, 90%)',
+  boxShadow: '0 10px 40px -10px rgba(0,0,0,0.6)',
+  transform: 'translateY(4px)',
+  animation: 'popIn .18s ease'
 };
 
-const baseBtn: React.CSSProperties = {
-  cursor: 'pointer', fontSize: 14, padding: '8px 16px', borderRadius: 8, border: 'none', fontWeight: 500
-};
-
-const btnSecondary: React.CSSProperties = {
-  ...baseBtn, background: '#334155', color: '#f1f5f9'
-};
-
-const btnPrimary: React.CSSProperties = {
-  ...baseBtn, background: '#2563eb', color: '#fff'
-};
+const headingStyle: React.CSSProperties = { margin: '0 0 12px', fontSize: 18 };
+const messageStyle: React.CSSProperties = { fontSize: 14, lineHeight: 1.4, marginBottom: 20, whiteSpace: 'pre-line' };
+const actionsRowStyle: React.CSSProperties = { display: 'flex', justifyContent: 'flex-end', gap: 12 };
 
 export default ConfirmModal;
 

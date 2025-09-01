@@ -1,6 +1,8 @@
 import * as React from 'react';
 import { listJobs, startJob, cancelJob, deleteJobAll, forceDeleteJob, getApiBase, QueueJobSummary } from '../lib/api.js';
 import ConfirmModal from './ConfirmModal.js';
+import { Button } from './ui/Button.js';
+import { usePolling } from '../hooks/usePolling.js';
 
 interface JobQueueProps {
   refreshMs?: number;
@@ -9,8 +11,7 @@ interface JobQueueProps {
 export const JobQueue: React.FC<JobQueueProps> = ({ refreshMs = 1200 }) => {
   const [jobs, setJobs] = React.useState<QueueJobSummary[]>([]);
   const [loading, setLoading] = React.useState(false);
-  const timerRef = React.useRef<number | null>(null);
-  const [confirmState, setConfirmState] = React.useState<{ open: boolean; jobId?: string; terminal?: boolean }>(() => ({ open: false }));
+  const [confirmState, setConfirmState] = React.useState<{ open: boolean; jobId?: string; terminal?: boolean }>({ open: false });
   const [deleting, setDeleting] = React.useState(false);
 
   const fetchJobs = React.useCallback(async () => {
@@ -26,36 +27,28 @@ export const JobQueue: React.FC<JobQueueProps> = ({ refreshMs = 1200 }) => {
     }
   }, []);
 
-  React.useEffect(() => {
-    fetchJobs();
-    const tick = () => {
-      fetchJobs();
-      timerRef.current = window.setTimeout(tick, refreshMs);
-    };
-    timerRef.current = window.setTimeout(tick, refreshMs);
-    return () => { if (timerRef.current) window.clearTimeout(timerRef.current); };
-  }, [fetchJobs, refreshMs]);
+  usePolling(fetchJobs, { interval: refreshMs, immediate: true, enabled: true });
 
-  const action = async (id: string, fn: (id: string) => Promise<void>) => {
+  const runJobAction = React.useCallback(async (id: string, fn: (id: string) => Promise<void>) => {
     await fn(id);
     fetchJobs();
-  };
+  }, [fetchJobs]);
 
-  const openDownload = (file: string) => {
+  const openDownload = React.useCallback((file: string) => {
     const url = `${getApiBase()}/youtube/download/${encodeURIComponent(file)}`;
     window.open(url, '_blank');
-  };
+  }, []);
 
   return (
     <>
     <div style={styles.wrapper}>
       <h3 style={styles.heading}>Cola de trabajos</h3>
       {loading && jobs.length === 0 && <div style={styles.info}>Cargando jobs...</div>}
-      {jobs.length === 0 && !loading && <div style={styles.info}>Sin trabajos en cola.</div>}
+      {!loading && jobs.length === 0 && <div style={styles.info}>Sin trabajos en cola.</div>}
       <ul style={styles.list}>
         {jobs.map(job => {
           const percent = job.percent.toFixed(2);
-          const isTerminal = ['done','error','canceled'].includes(job.state);
+          const isTerminal = TERMINAL_STATES.includes(job.state);
           const duration = job.durationSeconds ? formatDuration(job.durationSeconds) : undefined;
           return (
             <li key={job.id} style={styles.item}>
@@ -83,17 +76,40 @@ export const JobQueue: React.FC<JobQueueProps> = ({ refreshMs = 1200 }) => {
                   </div>
                 </div>
                 <div style={styles.actions}>
-                  {job.state === 'queued' && <button onClick={() => action(job.id, startJob)} style={styles.btn}>▶</button>}
-                  {['downloading','converting','pending','queued'].includes(job.state) && (
-                    <button onClick={() => action(job.id, cancelJob)} style={styles.btn}>✕</button>
+                  {job.state === 'queued' && (
+                    <Button
+                      aria-label="Iniciar job"
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => runJobAction(job.id, startJob)}
+                    >▶</Button>
                   )}
-                  {job.hasFile && job.file && <button title="Descargar archivo" onClick={() => openDownload(job.file!)} style={styles.btn}>⬇</button>}
-                  <button
+                  {ACTIVE_STATES.includes(job.state) && (
+                    <Button
+                      aria-label="Cancelar job"
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => runJobAction(job.id, cancelJob)}
+                    >✕</Button>
+                  )}
+                  {job.hasFile && job.file && (
+                    <Button
+                      aria-label="Descargar archivo"
+                      title="Descargar archivo"
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => openDownload(job.file!)}
+                    >⬇</Button>
+                  )}
+                  <Button
+                    aria-label={isTerminal ? 'Eliminar archivo y registro' : 'Cancelar y eliminar job'}
                     title={isTerminal ? 'Eliminar todo' : 'Cancelar y eliminar'}
+                    size="sm"
+                    variant="danger"
+                    loading={deleting && confirmState.jobId === job.id}
                     disabled={deleting}
                     onClick={() => setConfirmState({ open: true, jobId: job.id, terminal: isTerminal })}
-                    style={{ ...styles.btn, background: '#991b1b', opacity: deleting ? 0.6 : 1, cursor: deleting ? 'not-allowed' : 'pointer' }}
-                  >{deleting && confirmState.jobId === job.id ? '…' : '🗑️'}</button>
+                  >🗑️</Button>
                 </div>
               </div>
               <div style={styles.dualBarsWrapper}>
@@ -121,11 +137,8 @@ export const JobQueue: React.FC<JobQueueProps> = ({ refreshMs = 1200 }) => {
         if (!confirmState.jobId) return;
         setDeleting(true);
         try {
-          if (confirmState.terminal) {
-            await deleteJobAll(confirmState.jobId);
-          } else {
-            await forceDeleteJob(confirmState.jobId);
-          }
+          if (confirmState.terminal) await deleteJobAll(confirmState.jobId);
+          else await forceDeleteJob(confirmState.jobId);
           await fetchJobs();
         } catch (e) {
           // eslint-disable-next-line no-console
@@ -143,6 +156,10 @@ export const JobQueue: React.FC<JobQueueProps> = ({ refreshMs = 1200 }) => {
 // Append modal outside list rendering but inside wrapper root using fragment
 // (Modify return to include modal)
 
+// Utilities
+const TERMINAL_STATES = ['done', 'error', 'canceled'];
+const ACTIVE_STATES = ['downloading', 'converting', 'pending', 'queued'];
+
 function formatDuration(totalSeconds: number) {
   if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) return '00:00';
   const h = Math.floor(totalSeconds / 3600);
@@ -150,19 +167,6 @@ function formatDuration(totalSeconds: number) {
   const s = Math.floor(totalSeconds % 60);
   const pad = (n: number) => n.toString().padStart(2, '0');
   return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
-}
-
-function colorForState(state: string) {
-  switch (state) {
-    case 'queued': return '#64748b';
-    case 'pending': return '#6366f1';
-    case 'downloading': return '#0ea5e9';
-    case 'converting': return '#f59e0b';
-    case 'done': return '#10b981';
-    case 'error': return '#ef4444';
-    case 'canceled': return '#94a3b8';
-    default: return '#6366f1';
-  }
 }
 
 const styles: Record<string, React.CSSProperties> = {
