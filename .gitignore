@@ -31,3 +31,6 @@ media/
 
 # Misc
 pnpm-lock.yaml
+
+# bd sqlite
+*.sqlite
