@@ -1,4 +1,4 @@
-import { YouTubeToMp3 } from './components/YouTubeToMp3';
+import { YouTubeToMp3 } from './components/YouTubeToMp3.js';
 
 export function App() {
   return (

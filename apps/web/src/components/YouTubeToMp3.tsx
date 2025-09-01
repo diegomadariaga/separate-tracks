@@ -1,15 +1,18 @@
-import React, { useCallback, useRef, useState } from 'react';
-import { requestYoutubeMp3, getApiBase, YoutubeMp3Response } from '../lib/api';
+import * as React from 'react';
+import { useCallback, useRef, useState } from 'react';
+import { startYoutubeMp3Job, getJobProgress, getApiBase, YoutubeMp3Response, ProgressResponse } from '../lib/api.js';
 
 interface DownloadState {
-  status: 'idle' | 'validating' | 'loading' | 'success' | 'error';
+  status: 'idle' | 'loading' | 'polling' | 'success' | 'error';
   message?: string;
   result?: YoutubeMp3Response;
+  jobId?: string;
+  percent?: number;
 }
 
 const YT_REGEX = /^(https?:\/\/)?(www\.|m\.)?(youtube\.com\/watch\?v=|youtu\.be\/)[\w-]{11}(&.*)?$/i;
 
-export const YouTubeToMp3: React.FC = () => {
+export const YouTubeToMp3 = () => {
   const [url, setUrl] = useState('');
   const [state, setState] = useState<DownloadState>({ status: 'idle' });
   const abortRef = useRef<AbortController | null>(null);
@@ -28,12 +31,13 @@ export const YouTubeToMp3: React.FC = () => {
     }
     const controller = new AbortController();
     abortRef.current = controller;
-    setState({ status: 'loading', message: 'Convirtiendo…' });
+    setState({ status: 'loading', message: 'Iniciando conversión…' });
     try {
       const timeout = setTimeout(() => controller.abort(), 1000 * 60 * 2); // 2 min
-      const res = await requestYoutubeMp3(url.trim(), controller.signal);
+      const { jobId } = await startYoutubeMp3Job(url.trim(), controller.signal);
       clearTimeout(timeout);
-      setState({ status: 'success', message: 'Conversión completa.', result: res });
+      setState({ status: 'polling', message: 'Preparando…', jobId, percent: 0 });
+      pollJob(jobId);
     } catch (err: any) {
       if (controller.signal.aborted) {
         setState({ status: 'idle', message: 'Cancelado.' });
@@ -44,6 +48,37 @@ export const YouTubeToMp3: React.FC = () => {
       abortRef.current = null;
     }
   };
+
+  const pollJob = useCallback((jobId: string) => {
+    let cancelled = false;
+    const tick = async () => {
+      if (cancelled) return;
+      try {
+        const progress: ProgressResponse = await getJobProgress(jobId);
+        if (progress.state === 'done' && progress.result) {
+          setState({ status: 'success', message: 'Conversión completa.', result: progress.result, jobId, percent: 100 });
+          return;
+        }
+        if (progress.state === 'error') {
+          setState({ status: 'error', message: progress.error || 'Error en conversión', jobId, percent: progress.percent });
+          return;
+        }
+        setState(s => ({
+          ...s,
+            status: 'polling',
+          jobId,
+          percent: progress.percent,
+          message: progress.message || s.message || 'Procesando…'
+        }));
+      } catch (e: any) {
+        setState({ status: 'error', message: e.message || 'Error consultando progreso', jobId });
+        return;
+      }
+      setTimeout(tick, 1000);
+    };
+    tick();
+    return () => { cancelled = true; };
+  }, []);
 
   const reset = () => {
     setUrl('');
@@ -67,7 +102,7 @@ export const YouTubeToMp3: React.FC = () => {
           type="url"
           placeholder="https://www.youtube.com/watch?v=..."
           value={url}
-          onChange={e => setUrl(e.target.value)}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setUrl(e.target.value)}
           style={styles.input}
           disabled={state.status === 'loading'}
           aria-label="YouTube URL"
@@ -80,7 +115,7 @@ export const YouTubeToMp3: React.FC = () => {
         >
           {state.status === 'loading' ? 'Convirtiendo...' : 'Convertir'}
         </button>
-        {state.status === 'loading' && (
+        {['loading','polling'].includes(state.status) && (
           <button type="button" onClick={() => abortRef.current?.abort()} style={styles.secondary}>
             Cancelar
           </button>
@@ -103,8 +138,14 @@ export const YouTubeToMp3: React.FC = () => {
             <button onClick={handleDownload} style={styles.button}>Descargar MP3</button>
         </div>
       )}
-      {state.status === 'loading' && (
-        <div style={{ ...styles.alert, ...styles.info }}>{state.message}</div>
+      {['loading','polling'].includes(state.status) && (
+        <div style={{ ...styles.alert, ...styles.info }}>
+          {state.message}
+          <div style={{ marginTop: 8, background: '#0f172a', borderRadius: 6, overflow: 'hidden', height: 10 }}>
+            <div style={{ width: `${Math.min(100, Math.max(0, state.percent || 0)).toFixed(2)}%`, height: '100%', background: '#6366f1', transition: 'width 0.6s ease' }} />
+          </div>
+          <div style={{ marginTop: 4, fontSize: 12, opacity: 0.8 }}>{(state.percent || 0).toFixed(2)}%</div>
+        </div>
       )}
     </div>
   );

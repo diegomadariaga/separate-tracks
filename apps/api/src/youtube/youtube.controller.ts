@@ -30,6 +30,34 @@ export class YoutubeController {
     };
   }
 
+  @Post('mp3/async')
+  async startAsync(@Body() dto: DownloadYoutubeDto) {
+    const jobId = this.youtube.startMp3Job(dto.url);
+    return { jobId };
+  }
+
+  @Get('progress/:id')
+  async progress(@Param('id') id: string) {
+    const job = this.youtube.getJob(id);
+    if (!job) throw new NotFoundException('Job no encontrado');
+    const base: any = {
+      id: job.id,
+      state: job.state,
+      percent: Number(job.percent.toFixed(2)),
+      message: job.message,
+      stagePercent: job.stagePercent != null ? Number(job.stagePercent.toFixed(2)) : undefined
+    };
+    if (job.state === 'done' && job.result) {
+      base.result = {
+        file: job.result.fileName,
+        sizeBytes: job.result.sizeBytes,
+        downloadUrl: `/youtube/download/${encodeURIComponent(job.result.fileName)}`
+      };
+    }
+    if (job.state === 'error') base.error = job.error;
+    return base;
+  }
+
   @Get('download/:file')
   async download(@Param('file') file: string, @Res() res: Response) {
     const mediaDir = join(process.cwd(), 'media');

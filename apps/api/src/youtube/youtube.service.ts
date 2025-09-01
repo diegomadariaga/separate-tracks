@@ -21,10 +21,106 @@ export interface RawDownloadResult {
   format: string;
 }
 
+export type JobState = 'pending' | 'downloading' | 'converting' | 'done' | 'error';
+export interface JobProgress {
+  id: string;
+  state: JobState;
+  percent: number; // 0-100
+  stagePercent?: number; // porcentaje de la etapa actual
+  message?: string;
+  result?: ConversionResult;
+  error?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 @Injectable()
 export class YoutubeService {
   private mediaDir = join(process.cwd(), 'media');
   private readonly logger = new Logger(YoutubeService.name);
+  private jobs = new Map<string, JobProgress>();
+
+  getJob(id: string): JobProgress | undefined {
+    return this.jobs.get(id);
+  }
+
+  private updateJob(id: string, patch: Partial<JobProgress>) {
+    const current = this.jobs.get(id);
+    if (!current) return;
+    const updated: JobProgress = { ...current, ...patch, updatedAt: Date.now() };
+    // Derivar percent principal en base a state/stagePercent si no se setea explícito
+    this.jobs.set(id, updated);
+  }
+
+  startMp3Job(url: string): string {
+    const id = randomUUID();
+    const now = Date.now();
+    this.jobs.set(id, { id, state: 'pending', percent: 0, createdAt: now, updatedAt: now });
+    this.processMp3Job(id, url).catch(err => {
+      this.updateJob(id, { state: 'error', error: err instanceof Error ? err.message : String(err), percent: 100 });
+    });
+    return id;
+  }
+
+  private async processMp3Job(id: string, url: string) {
+    this.updateJob(id, { state: 'downloading', message: 'Obteniendo info...' });
+    let info;
+    try {
+      info = await ytdl.getInfo(url);
+    } catch (e: any) {
+      if (e && /extract functions/i.test(e.message)) {
+        throw new BadRequestException('YouTube cambió su página, intenta más tarde (firma no extraída)');
+      }
+      throw e;
+    }
+    const titleSlug = info.videoDetails.title.replace(/[^a-z0-9]+/gi, '-').slice(0, 60).replace(/^-|-$/g, '').toLowerCase();
+    const fileName = `${titleSlug || 'audio'}-${id}.mp3`;
+    const outputPath = join(this.mediaDir, fileName);
+
+    const audioStream = ytdl(url, { quality: 'highestaudio', filter: 'audioonly' });
+    let finished = false;
+    const writeStream = createWriteStream(outputPath);
+
+    const totalUnknownFallbackStart = Date.now();
+
+    audioStream.on('progress', (_chunk: number, downloaded: number, total: number) => {
+      let percent = total ? (downloaded / total) * 50 : Math.min(50, ((Date.now() - totalUnknownFallbackStart) / 30000) * 50);
+      if (percent > 50) percent = 50; // primera mitad
+      this.updateJob(id, { state: 'downloading', percent, stagePercent: percent, message: 'Descargando audio...' });
+    });
+
+    const bail = (err: Error, context: string) => {
+      if (finished) return;
+      finished = true;
+      this.updateJob(id, { state: 'error', error: `${context}: ${err.message}`, message: 'Error', percent: 100 });
+    };
+    audioStream.on('error', e => bail(e, 'Error stream YouTube'));
+    writeStream.on('error', e => bail(e, 'Error escritura archivo'));
+
+    ffmpeg(audioStream as any)
+      .audioBitrate(128)
+      .toFormat('mp3')
+      .on('start', () => this.updateJob(id, { state: 'converting', message: 'Convirtiendo...', percent: 55 }))
+      .on('progress', (p: any) => {
+        const convPercent = p?.percent ? Math.min(100, Math.max(0, p.percent)) : 0;
+        // Mapear progreso conversión a segmento 50-99
+        const global = 50 + (convPercent / 100) * 49; // deja 1% final para flush
+        this.updateJob(id, { state: 'converting', percent: global, stagePercent: convPercent, message: 'Convirtiendo...' });
+      })
+      .on('error', (err: Error) => bail(err, 'Error en conversión'))
+      .on('end', () => {
+        if (finished) return;
+        finished = true;
+        try {
+          const sizeBytes = writeStream.bytesWritten;
+          const result: ConversionResult = { fileName, path: outputPath, sizeBytes };
+            this.updateJob(id, { state: 'done', percent: 100, result, message: 'Completado' });
+        } catch (e: any) {
+          bail(e, 'Error finalizando');
+        }
+      })
+      .save(outputPath);
+  }
 
   private ensureMediaDir() {
     if (!existsSync(this.mediaDir)) {
