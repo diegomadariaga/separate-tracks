@@ -17,6 +17,12 @@ export class YoutubeJobEntity {
   durationSeconds?: number;
 
   @Column({ nullable: true })
+  thumbnailUrl?: string;
+
+  @Column({ nullable: true })
+  author?: string;
+
+  @Column({ nullable: true })
   outputFile?: string;
 
   @Column({ type: 'text', nullable: true })

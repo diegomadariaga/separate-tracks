@@ -56,6 +56,8 @@ export class YoutubeController {
       file: j.result?.fileName,
       title: j.title || j.result?.title,
       durationSeconds: j.durationSeconds || j.result?.durationSeconds,
+      thumbnailUrl: (j as any).thumbnailUrl,
+      author: (j as any).author,
       hasFile: !!j.result,
       createdAt: j.createdAt,
       updatedAt: j.updatedAt
@@ -116,6 +118,8 @@ export class YoutubeController {
       convertPercent: job.convertPercent != null ? Number(job.convertPercent.toFixed(2)) : undefined,
       title: job.title || job.result?.title,
       durationSeconds: job.durationSeconds || job.result?.durationSeconds,
+      thumbnailUrl: (job as any).thumbnailUrl,
+      author: (job as any).author,
     };
     if (job.state === 'done' && job.result) {
       base.result = {

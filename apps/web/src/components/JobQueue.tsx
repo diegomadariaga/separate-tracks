@@ -56,12 +56,31 @@ export const JobQueue: React.FC<JobQueueProps> = ({ refreshMs = 1200 }) => {
         {jobs.map(job => {
           const percent = job.percent.toFixed(2);
           const isTerminal = ['done','error','canceled'].includes(job.state);
+          const duration = job.durationSeconds ? formatDuration(job.durationSeconds) : undefined;
           return (
             <li key={job.id} style={styles.item}>
               <div style={styles.topRow}>
-                <div style={styles.titleBlock}>
-                  <strong>{job.title || job.file || '(cargando título...)'}</strong>
-                  <div style={styles.meta}>{job.state} · {percent}% {job.message ? `· ${job.message}` : ''}</div>
+                <div style={styles.thumbAndTitle}>
+                  {job.thumbnailUrl ? (
+                    <img
+                      src={job.thumbnailUrl}
+                      alt={job.title || 'thumbnail'}
+                      style={styles.thumb}
+                      loading="lazy"
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : (
+                    <div style={styles.thumbPlaceholder} aria-hidden="true" />
+                  )}
+                  <div style={styles.titleBlock}>
+                    <strong style={styles.titleText}>{job.title || job.file || '(cargando título...)'}</strong>
+                    <div style={styles.metaLine}>
+                      {job.author && <span style={styles.meta}>{job.author}</span>}
+                      {job.author && duration && <span style={styles.dot}>•</span>}
+                      {duration && <span style={styles.meta}>{duration}</span>}
+                    </div>
+                    <div style={styles.meta}>{job.state} · {percent}% {job.message ? `· ${job.message}` : ''}</div>
+                  </div>
                 </div>
                 <div style={styles.actions}>
                   {job.state === 'queued' && <button onClick={() => action(job.id, startJob)} style={styles.btn}>▶</button>}
@@ -137,6 +156,15 @@ export const JobQueue: React.FC<JobQueueProps> = ({ refreshMs = 1200 }) => {
 // Append modal outside list rendering but inside wrapper root using fragment
 // (Modify return to include modal)
 
+function formatDuration(totalSeconds: number) {
+  if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) return '00:00';
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = Math.floor(totalSeconds % 60);
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
+}
+
 function colorForState(state: string) {
   switch (state) {
     case 'queued': return '#64748b';
@@ -157,8 +185,14 @@ const styles: Record<string, React.CSSProperties> = {
   list: { listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 12 },
   item: { background: '#0f172a', padding: '12px 14px', borderRadius: 10, display: 'flex', flexDirection: 'column', gap: 8 },
   topRow: { display: 'flex', justifyContent: 'space-between', gap: 12 },
+  thumbAndTitle: { display: 'flex', gap: 12, minWidth: 0 },
+  thumb: { width: 80, height: 45, objectFit: 'cover', borderRadius: 6, background: '#1e293b', flexShrink: 0 },
+  thumbPlaceholder: { width: 80, height: 45, borderRadius: 6, background: 'linear-gradient(135deg,#1e293b,#0f172a)', opacity: 0.4, flexShrink: 0 },
   titleBlock: { display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 },
-  meta: { fontSize: 12, opacity: 0.7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 260 },
+  titleText: { display: 'block', fontSize: 14, lineHeight: 1.3, maxHeight: 36, overflow: 'hidden' },
+  metaLine: { display: 'flex', gap: 4, alignItems: 'center', fontSize: 11, flexWrap: 'wrap', opacity: 0.85 },
+  dot: { opacity: 0.6 },
+  meta: { fontSize: 11, opacity: 0.7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 200 },
   actions: { display: 'flex', gap: 6 },
   btn: { background: '#334155', color: '#fff', border: 'none', padding: '4px 8px', borderRadius: 6, cursor: 'pointer', fontSize: 12 },
   progressBarOuter: { height: 6, background: '#334155', borderRadius: 4, overflow: 'hidden' },

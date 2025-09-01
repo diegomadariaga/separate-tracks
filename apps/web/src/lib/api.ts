@@ -13,6 +13,10 @@ export interface ProgressResponse {
   stagePercent?: number;
   result?: { file: string; sizeBytes: number; downloadUrl: string };
   error?: string;
+  title?: string;
+  durationSeconds?: number;
+  thumbnailUrl?: string;
+  author?: string;
 }
 
 export interface QueueJobSummary {
@@ -23,6 +27,8 @@ export interface QueueJobSummary {
   file?: string;
   title?: string;
   durationSeconds?: number;
+  thumbnailUrl?: string;
+  author?: string;
   hasFile: boolean;
   createdAt: number;
   updatedAt: number;

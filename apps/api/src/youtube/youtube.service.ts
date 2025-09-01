@@ -42,6 +42,8 @@ export interface JobProgress {
   convertPercent?: number; // 0-100 real conversión
   title?: string;
   durationSeconds?: number;
+  thumbnailUrl?: string;
+  author?: string;
 }
 
 @Injectable()
@@ -80,6 +82,8 @@ export class YoutubeService implements OnModuleInit {
       outputFile: updated.result?.fileName,
       title: updated.title || updated.result?.title,
       durationSeconds: updated.durationSeconds || updated.result?.durationSeconds,
+  thumbnailUrl: updated.thumbnailUrl,
+  author: updated.author,
       errorMessage: updated.error,
       downloadPercent: updated.downloadPercent !== undefined ? Math.round(updated.downloadPercent) : undefined,
       convertPercent: updated.convertPercent !== undefined ? Math.round(updated.convertPercent) : undefined,
@@ -103,6 +107,8 @@ export class YoutubeService implements OnModuleInit {
         url: r.url,
         title: r.title || undefined,
         durationSeconds: r.durationSeconds || undefined,
+  thumbnailUrl: (r as any).thumbnailUrl || undefined,
+  author: (r as any).author || undefined,
         result: r.outputFile ? { fileName: r.outputFile, path: join(this.mediaDir, r.outputFile), sizeBytes: 0, title: r.title, durationSeconds: r.durationSeconds } : undefined
       };
       if (['downloading', 'converting', 'pending'].includes(r.state)) {
@@ -139,7 +145,9 @@ export class YoutubeService implements OnModuleInit {
         const info = await ytdl.getInfo(url);
         const title = info.videoDetails.title;
         const durationSeconds = Number(info.videoDetails.lengthSeconds || '0') || undefined;
-        this.persistAndCache(id, { title, durationSeconds, message: 'En cola' });
+        const author = info.videoDetails.author?.name || (info.videoDetails.ownerChannelName) || undefined;
+        const thumb = (info.videoDetails.thumbnails || []).sort((a,b)=> (b.width*b.height)-(a.width*a.height))[0]?.url;
+        this.persistAndCache(id, { title, durationSeconds, author, thumbnailUrl: thumb, message: 'En cola' });
       } catch (e) {
         // ignoramos errores de metadata aquí para no romper la cola; se reintentará al iniciar
         this.persistAndCache(id, { message: 'En cola' });
@@ -222,7 +230,9 @@ export class YoutubeService implements OnModuleInit {
     try {
       const earlyTitle = info.videoDetails.title;
       const earlyDuration = Number(info.videoDetails.lengthSeconds || '0') || undefined;
-      this.persistAndCache(id, { title: earlyTitle, durationSeconds: earlyDuration });
+      const author = info.videoDetails.author?.name || (info.videoDetails.ownerChannelName) || undefined;
+      const thumb = (info.videoDetails.thumbnails || []).sort((a,b)=> (b.width*b.height)-(a.width*a.height))[0]?.url;
+      this.persistAndCache(id, { title: earlyTitle, durationSeconds: earlyDuration, author, thumbnailUrl: thumb });
     } catch {/* ignore */}
     const titleSlug = info.videoDetails.title.replace(/[^a-z0-9]+/gi, '-').slice(0, 60).replace(/^-|-$/g, '').toLowerCase();
   const fileName = `${titleSlug || 'audio'}-${id}.mp3`;
@@ -277,7 +287,9 @@ export class YoutubeService implements OnModuleInit {
           const sizeBytes = writeStream.bytesWritten;
           const durationSeconds = Number(info.videoDetails.lengthSeconds || '0') || undefined;
           const result: ConversionResult = { fileName, path: outputPath, sizeBytes, title: info.videoDetails.title, durationSeconds };
-            this.persistAndCache(id, { state: 'done', percent: 100, result, message: 'Completado', downloadPercent: 100, convertPercent: 100, title: info.videoDetails.title, durationSeconds });
+            const author = info.videoDetails.author?.name || (info.videoDetails.ownerChannelName) || undefined;
+            const thumb = (info.videoDetails.thumbnails || []).sort((a,b)=> (b.width*b.height)-(a.width*a.height))[0]?.url;
+            this.persistAndCache(id, { state: 'done', percent: 100, result, message: 'Completado', downloadPercent: 100, convertPercent: 100, title: info.videoDetails.title, durationSeconds, author, thumbnailUrl: thumb });
         } catch (e: any) {
           bail(e, 'Error finalizando');
         }
