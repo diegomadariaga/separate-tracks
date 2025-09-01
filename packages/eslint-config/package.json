@@ -1,9 +1,0 @@
-{
-  "name": "@repo/eslint-config",
-  "version": "0.0.0",
-  "private": true,
-  "main": "index.js",
-  "peerDependencies": {
-    "eslint": "^8 || ^9"
-  }
-}
