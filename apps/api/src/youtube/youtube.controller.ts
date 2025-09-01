@@ -88,6 +88,20 @@ export class YoutubeController {
     return { ok: true };
   }
 
+  @Delete('job/:id/all')
+  async deleteJobAndFile(@Param('id') id: string) {
+    const ok = this.youtube.deleteJobAndFile(id);
+    if (!ok) throw new NotFoundException('Job no encontrado');
+    return { ok: true };
+  }
+
+  @Delete('job/:id/force')
+  async forceDelete(@Param('id') id: string) {
+    const ok = this.youtube.forceDelete(id);
+    if (!ok) throw new NotFoundException('Job no encontrado');
+    return { ok: true };
+  }
+
   @Get('progress/:id')
   async progress(@Param('id') id: string) {
     const job = this.youtube.getJob(id);

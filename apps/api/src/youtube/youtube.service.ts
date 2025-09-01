@@ -185,6 +185,28 @@ export class YoutubeService implements OnModuleInit {
     }
   }
 
+  deleteJobAndFile(id: string): boolean {
+    const job = this.jobs.get(id);
+    if (!job) return false;
+    if (job.result && existsSync(job.result.path)) {
+      try { require('node:fs').unlinkSync(job.result.path); } catch { /* ignore */ }
+    }
+    this.jobs.delete(id);
+    // También eliminar en DB (registro)
+    this.repo.delete(id).catch(() => {});
+    return true;
+  }
+
+  forceDelete(id: string): boolean {
+    const job = this.jobs.get(id);
+    if (!job) return false;
+    // Cancelar si está en progreso
+    if (!['done','error','canceled'].includes(job.state)) {
+      try { this.cancelJob(id); } catch { /* ignore */ }
+    }
+    return this.deleteJobAndFile(id);
+  }
+
   private async processMp3Job(id: string, url: string) {
   this.persistAndCache(id, { state: 'downloading', message: 'Obteniendo info...' });
     let info;

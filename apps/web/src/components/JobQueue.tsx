@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { listJobs, startJob, cancelJob, deleteJob, deleteJobFile, getApiBase, QueueJobSummary } from '../lib/api.js';
+import { listJobs, startJob, cancelJob, deleteJobAll, forceDeleteJob, getApiBase, QueueJobSummary } from '../lib/api.js';
 
 interface JobQueueProps {
   refreshMs?: number;
@@ -64,9 +64,20 @@ export const JobQueue: React.FC<JobQueueProps> = ({ refreshMs = 1200 }) => {
                   {['downloading','converting','pending','queued'].includes(job.state) && (
                     <button onClick={() => action(job.id, cancelJob)} style={styles.btn}>✕</button>
                   )}
-                  {job.hasFile && job.file && <button onClick={() => openDownload(job.file!)} style={styles.btn}>⬇</button>}
-                  {job.hasFile && <button onClick={() => action(job.id, deleteJobFile)} style={styles.btn}>🗑️F</button>}
-                  {isTerminal && <button onClick={() => action(job.id, deleteJob)} style={styles.btn}>🗑️</button>}
+                  {job.hasFile && job.file && <button title="Descargar archivo" onClick={() => openDownload(job.file!)} style={styles.btn}>⬇</button>}
+                  <button
+                    title={isTerminal ? 'Eliminar todo' : 'Cancelar y eliminar'}
+                    onClick={async () => {
+                      const confirmText = isTerminal ? '¿Eliminar archivo y registro?' : 'El job está activo. ¿Cancelar y eliminar?';
+                      if (!window.confirm(confirmText)) return;
+                      if (isTerminal) {
+                        await action(job.id, deleteJobAll);
+                      } else {
+                        await action(job.id, forceDeleteJob);
+                      }
+                    }}
+                    style={{ ...styles.btn, background: '#991b1b' }}
+                  >🗑️</button>
                 </div>
               </div>
               <div style={styles.dualBarsWrapper}>

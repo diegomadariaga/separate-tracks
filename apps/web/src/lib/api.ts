@@ -68,6 +68,16 @@ export async function deleteJobFile(id: string): Promise<void> {
   if (!res.ok) throw new Error('No se pudo eliminar archivo');
 }
 
+export async function deleteJobAll(id: string): Promise<void> {
+  const res = await fetch(`${getApiBase()}/youtube/job/${id}/all`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('No se pudo eliminar job+archivo');
+}
+
+export async function forceDeleteJob(id: string): Promise<void> {
+  const res = await fetch(`${getApiBase()}/youtube/job/${id}/force`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('No se pudo eliminar forzado');
+}
+
 export const getApiBase = () => import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 export async function requestYoutubeMp3(url: string, signal?: AbortSignal): Promise<YoutubeMp3Response> {
