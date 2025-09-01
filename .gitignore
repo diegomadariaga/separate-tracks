@@ -18,6 +18,9 @@ coverage
 .turbo
 **/.turbo
 
+# Media output (mp3 files)
+media/
+
 # Editor
 .DS_Store
 .idea/

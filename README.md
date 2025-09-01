@@ -44,6 +44,48 @@ packages/
 - Agregar CI/CD (GitHub Actions)
 - Testing (Jest en API, Vitest en Web)
 - Compartir librerías en `packages/`
+- Implementar endpoint real para conversión YouTube -> MP3
+
+## Interfaz YouTube -> MP3 (Frontend)
+
+La aplicación web incluye un componente `YouTubeToMp3` que:
+- Valida una URL de YouTube.
+- Simula la conversión mostrando estados (cargando, éxito, error).
+- Genera un enlace de descarga ficticio (aún no funcional hasta crear la API).
+
+Cuando la API esté lista, se reemplazará la simulación por una llamada real (`fetch` al endpoint) y se descargará el binario.
+
+## API YouTube -> MP3 (Backend)
+
+Endpoint principal (NestJS):
+
+POST `/youtube/mp3`
+Body JSON:
+```json
+{ "url": "https://www.youtube.com/watch?v=VIDEO_ID" }
+```
+Respuesta:
+```json
+{
+  "file": "titulo-slug-<uuid>.mp3",
+  "sizeBytes": 1234567,
+  "downloadUrl": "/youtube/download/titulo-slug-<uuid>.mp3"
+}
+```
+
+GET `/youtube/download/:file` sirve el archivo MP3 para descarga.
+
+Notas:
+- Conversión usando `ytdl-core` + `fluent-ffmpeg`.
+- Se requiere ffmpeg (usamos binario de `@ffmpeg-installer/ffmpeg`).
+- Archivos almacenados en `media/` (ignorados por git).
+
+Ejemplo con curl:
+```bash
+curl -X POST http://localhost:3000/youtube/mp3 \
+  -H 'Content-Type: application/json' \
+  -d '{"url":"https://www.youtube.com/watch?v=dQw4w9WgXcQ"}'
+```
 
 ---
 Generado automáticamente.
