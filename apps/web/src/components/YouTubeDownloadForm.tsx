@@ -1,23 +1,23 @@
 import React, { useState } from 'react';
 import { Button } from '@repo/ui';
-
-const API_URL = (import.meta as any).env.VITE_API_URL || '';
+import { API_URL as api } from '../apiConfig';
 
 export const YouTubeDownloadForm: React.FC = () => {
   const [url, setUrl] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
+  
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!url.trim()) return;
     setLoading(true); setError(null);
     try {
-      const res = await fetch(API_URL + '/youtube', {
+  const res = await fetch(api('/youtube'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url })
       });
+  console.log('🚀 ~ API_URL:', api(''));
       if (!res.ok) throw new Error('Error al solicitar descarga');
       setUrl('');
     } catch (e: any) {

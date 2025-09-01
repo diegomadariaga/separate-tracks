@@ -14,6 +14,7 @@ export class YoutubeService {
     constructor(private db: DbService, private queue: QueueService) {}
 
     async downloadToQueue(url: string) {
+        console.log('🚀 ~ YoutubeService ~ downloadToQueue ~ url:', url);
         if (!ytdl.validateURL(url)) throw new BadRequestException('URL inválida');
         const info = await ytdl.getInfo(url);
         const titleSafe = info.videoDetails.title.replace(/[^a-zA-Z0-9-_ ]/g, '_').slice(0, 60);

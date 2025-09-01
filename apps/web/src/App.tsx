@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { FileRecord } from './types';
+import { API_URL as api, WS_STATUS_URL } from './apiConfig';
 import { FileDropZone } from './components/FileDropZone';
 import { UploadProgress } from './components/UploadProgress';
 import { FileTable } from './components/FileTable';
@@ -8,8 +9,9 @@ import { useStatusSocket } from './hooks/useStatusSocket';
 import { ThemeToggle } from './components/ThemeToggle';
 import { YouTubeDownloadForm } from './components/YouTubeDownloadForm';
 
-const API_URL = (import.meta as any).env.VITE_API_URL || '';
-const WS_URL = (import.meta as any).env.VITE_WS_URL || (API_URL.replace(/^http/, 'ws') + '/ws/status');
+// Central config (apiConfig) gives helper to build endpoints and final WS URL.
+const API_URL = api(''); // '' => base root (may be relative "")
+const WS_URL = WS_STATUS_URL;
 
 export const App: React.FC = () => {
   const [files, setFiles] = useState<FileRecord[]>([]);
