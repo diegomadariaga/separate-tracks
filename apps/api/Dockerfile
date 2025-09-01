@@ -12,6 +12,7 @@ FROM base AS build
 COPY pnpm-workspace.yaml turbo.json package.json pnpm-lock.yaml ./
 COPY packages ./packages
 COPY apps/api/package.json apps/api/
+COPY tsconfig.base.json ./
 RUN pnpm install --filter @apps/api... --frozen-lockfile
 COPY apps/api ./apps/api
 RUN pnpm --filter @apps/api build
