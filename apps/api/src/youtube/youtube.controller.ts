@@ -15,6 +15,8 @@ export class YoutubeController {
     return {
       file: result.fileName,
       sizeBytes: result.sizeBytes,
+      title: result.title,
+      durationSeconds: result.durationSeconds,
       downloadUrl: `/youtube/download/${encodeURIComponent(result.fileName)}`
     };
   }
@@ -51,6 +53,8 @@ export class YoutubeController {
       base.result = {
         file: job.result.fileName,
         sizeBytes: job.result.sizeBytes,
+        title: job.result.title,
+        durationSeconds: job.result.durationSeconds,
         downloadUrl: `/youtube/download/${encodeURIComponent(job.result.fileName)}`
       };
     }

@@ -12,6 +12,8 @@ export interface ConversionResult {
   fileName: string;
   path: string;
   sizeBytes: number;
+  title?: string;
+  durationSeconds?: number;
 }
 
 export interface RawDownloadResult {
@@ -39,6 +41,9 @@ export class YoutubeService {
   private mediaDir = join(process.cwd(), 'media');
   private readonly logger = new Logger(YoutubeService.name);
   private jobs = new Map<string, JobProgress>();
+  private readonly jobTtlMs = 60 * 60 * 1000; // 1h
+  private readonly fileTtlMs = 24 * 60 * 60 * 1000; // 24h
+  private cleanupTimer: NodeJS.Timeout | null = null;
 
   getJob(id: string): JobProgress | undefined {
     return this.jobs.get(id);
@@ -53,6 +58,9 @@ export class YoutubeService {
   }
 
   startMp3Job(url: string): string {
+    if (!this.cleanupTimer) {
+      this.cleanupTimer = setInterval(() => this.cleanup(), 15 * 60 * 1000).unref();
+    }
     const id = randomUUID();
     const now = Date.now();
     this.jobs.set(id, { id, state: 'pending', percent: 0, createdAt: now, updatedAt: now });
@@ -74,7 +82,7 @@ export class YoutubeService {
       throw e;
     }
     const titleSlug = info.videoDetails.title.replace(/[^a-z0-9]+/gi, '-').slice(0, 60).replace(/^-|-$/g, '').toLowerCase();
-    const fileName = `${titleSlug || 'audio'}-${id}.mp3`;
+  const fileName = `${titleSlug || 'audio'}-${id}.mp3`;
     const outputPath = join(this.mediaDir, fileName);
 
     const audioStream = ytdl(url, { quality: 'highestaudio', filter: 'audioonly' });
@@ -113,13 +121,42 @@ export class YoutubeService {
         finished = true;
         try {
           const sizeBytes = writeStream.bytesWritten;
-          const result: ConversionResult = { fileName, path: outputPath, sizeBytes };
+          const durationSeconds = Number(info.videoDetails.lengthSeconds || '0') || undefined;
+          const result: ConversionResult = { fileName, path: outputPath, sizeBytes, title: info.videoDetails.title, durationSeconds };
             this.updateJob(id, { state: 'done', percent: 100, result, message: 'Completado' });
         } catch (e: any) {
           bail(e, 'Error finalizando');
         }
       })
       .save(outputPath);
+  }
+
+  private cleanup() {
+    const now = Date.now();
+    // Limpiar jobs viejos
+    for (const [id, job] of this.jobs.entries()) {
+      if (now - job.createdAt > this.jobTtlMs) {
+        this.jobs.delete(id);
+      }
+    }
+    // Limpiar archivos antiguos
+    try {
+      const dir = this.mediaDir;
+      if (!existsSync(dir)) return;
+      const entries = require('node:fs').readdirSync(dir);
+      for (const name of entries) {
+        const full = join(dir, name);
+        try {
+          const stat = require('node:fs').statSync(full);
+          if (now - stat.mtimeMs > this.fileTtlMs) {
+            require('node:fs').unlinkSync(full);
+            this.logger.verbose(`Limpieza: archivo eliminado ${name}`);
+          }
+        } catch { /* noop */ }
+      }
+    } catch (e) {
+      this.logger.debug('Error en limpieza: ' + (e as Error).message);
+    }
   }
 
   private ensureMediaDir() {

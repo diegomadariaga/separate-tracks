@@ -134,6 +134,18 @@ export const YouTubeToMp3 = () => {
           <span>{state.message}</span>
           <br />
           <strong>Archivo:</strong> {state.result.file}
+          { (state.result as any).title && (
+            <>
+              <br />
+              <strong>Título:</strong> {(state.result as any).title}
+            </>
+          )}
+          { (state.result as any).durationSeconds && (
+            <>
+              <br />
+              <strong>Duración:</strong> {Math.round((state.result as any).durationSeconds / 60)} min {(state.result as any).durationSeconds % 60}s
+            </>
+          )}
           <br />
             <button onClick={handleDownload} style={styles.button}>Descargar MP3</button>
         </div>

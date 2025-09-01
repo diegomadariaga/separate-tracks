@@ -75,6 +75,59 @@ Respuesta:
 
 GET `/youtube/download/:file` sirve el archivo MP3 para descarga.
 
+### Flujo asíncrono con progreso
+
+Para mostrar barra de progreso en el frontend se expone un flujo async:
+
+1. Iniciar job:
+   POST `/youtube/mp3/async`
+   Body:
+   ```json
+   { "url": "https://www.youtube.com/watch?v=VIDEO_ID" }
+   ```
+   Respuesta:
+   ```json
+   { "jobId": "<uuid>" }
+   ```
+2. Consultar progreso:
+   GET `/youtube/progress/:jobId`
+   Respuesta ejemplo (en proceso):
+   ```json
+   {
+     "id": "<uuid>",
+     "state": "converting",
+     "percent": 73.42,
+     "message": "Convirtiendo..."
+   }
+   ```
+   Finalizado:
+   ```json
+   {
+     "id": "<uuid>",
+     "state": "done",
+     "percent": 100,
+     "result": {
+       "file": "titulo-slug-<uuid>.mp3",
+       "sizeBytes": 1234567,
+       "title": "Título original del video",
+       "durationSeconds": 213,
+       "downloadUrl": "/youtube/download/titulo-slug-<uuid>.mp3"
+     }
+   }
+   ```
+
+Estados posibles: `pending`, `downloading`, `converting`, `done`, `error`.
+
+El porcentaje se distribuye: 0–50% descarga, 50–99% conversión, 100% final.
+
+### Limpieza automática
+
+Un job se elimina de memoria ~1h después de creado. Archivos en `media/` mayores a 24h se eliminan periódicamente (cada 15 min se ejecuta limpieza). Ajustable en `YoutubeService` (`jobTtlMs`, `fileTtlMs`).
+
+### Metadata incluida
+
+La respuesta final incluye `title` y `durationSeconds` si están disponibles en la información del video.
+
 Notas:
 - Conversión usando `ytdl-core` + `fluent-ffmpeg`.
 - Se requiere ffmpeg (usamos binario de `@ffmpeg-installer/ffmpeg`).
