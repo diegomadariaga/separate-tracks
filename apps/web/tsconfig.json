@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "outDir": "dist",
+    "module": "ESNext",
+    "moduleResolution": "NodeNext",
+    "types": ["node", "react", "react-dom"]
+  },
+  "include": ["src"],
+  "exclude": ["dist", "node_modules"]
+}
