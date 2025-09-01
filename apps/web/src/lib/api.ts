@@ -26,6 +26,9 @@ export interface QueueJobSummary {
   hasFile: boolean;
   createdAt: number;
   updatedAt: number;
+  downloadPercent?: number;
+  convertPercent?: number;
+  stagePercent?: number;
 }
 
 export async function enqueueYoutubeMp3(url: string, signal?: AbortSignal): Promise<{ jobId: string }> {

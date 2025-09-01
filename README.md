@@ -46,14 +46,9 @@ packages/
 - Compartir librerías en `packages/`
 - Implementar endpoint real para conversión YouTube -> MP3
 
-## Interfaz YouTube -> MP3 (Frontend)
+## Frontend YouTube -> MP3
 
-La aplicación web incluye un componente `YouTubeToMp3` que:
-- Valida una URL de YouTube.
-- Simula la conversión mostrando estados (cargando, éxito, error).
-- Genera un enlace de descarga ficticio (aún no funcional hasta crear la API).
-
-Cuando la API esté lista, se reemplazará la simulación por una llamada real (`fetch` al endpoint) y se descargará el binario.
+El componente `YouTubeToMp3` permite encolar trabajos en la cola persistente y el componente `JobQueue` muestra el estado detallado de cada conversión.
 
 ## API YouTube -> MP3 (Backend)
 
@@ -116,13 +111,22 @@ Para mostrar barra de progreso en el frontend se expone un flujo async:
    }
    ```
 
-Estados posibles: `pending`, `downloading`, `converting`, `done`, `error`.
+Estados posibles: `queued`, `pending`, `downloading`, `converting`, `done`, `error`, `canceled`.
 
-El porcentaje se distribuye: 0–50% descarga, 50–99% conversión, 100% final.
+Distribución de porcentaje global (`percent`):
+- 0–50: descarga
+- 50–99: conversión
+- 100: finalización
+
+Además se exponen porcentajes separados:
+- `downloadPercent` (0–100 real de la etapa de descarga)
+- `convertPercent` (0–100 real de la etapa de conversión)
 
 ### Limpieza automática
 
-Un job se elimina de memoria ~1h después de creado. Archivos en `media/` mayores a 24h se eliminan periódicamente (cada 15 min se ejecuta limpieza). Ajustable en `YoutubeService` (`jobTtlMs`, `fileTtlMs`).
+- Jobs antiguos (>1h) se eliminan de la cache en memoria (persisten en DB si no se purgan manualmente).
+- Archivos en `media/` mayores a 24h se eliminan cada 15 min.
+- Próximo paso (opcional): borrar filas antiguas de la tabla `youtube_jobs` según política definida.
 
 ### Metadata incluida
 
@@ -147,11 +151,11 @@ Estados adicionales: `queued`, `canceled`.
 
 El frontend muestra un panel "Cola de trabajos" con acciones: Play (start), Cancel, Descargar, Eliminar archivo, Eliminar job.
 
-Nota: actualmente la cancelación marca el estado y evita futuras actualizaciones; en una mejora futura se podrían abortar streams/ffmpeg explícitamente.
+Cancelación: se abortan streams de YouTube y proceso ffmpeg (kill) para liberar recursos inmediatamente.
 
 Notas:
-- Conversión usando `ytdl-core` + `fluent-ffmpeg`.
-- Se requiere ffmpeg (usamos binario de `@ffmpeg-installer/ffmpeg`).
+- Conversión usando `@distube/ytdl-core` (fork más resiliente) + `fluent-ffmpeg`.
+- Binario ffmpeg provisto por `@ffmpeg-installer/ffmpeg`.
 - Archivos almacenados en `media/` (ignorados por git).
 
 Ejemplo con curl:
@@ -167,12 +171,44 @@ Configura la variable en `apps/web/.env` (crear desde `.env.example`):
 ```
 VITE_API_URL=http://localhost:3000
 ```
-El componente `YouTubeToMp3` ahora:
-- Envía `POST /youtube/mp3`.
-- Muestra estado de conversión y permite cancelar (AbortController + timeout 2min).
-- Ofrece botón de descarga que abre la URL de `downloadUrl`.
+El flujo preferido es encolar trabajos (`POST /youtube/mp3/enqueue`) y gestionarlos desde el panel. También se soporta inicio inmediato (`/youtube/mp3/async`).
 
 Si el backend corre en otro host/puerto, actualiza `VITE_API_URL` y reinicia Vite.
 
+## Persistencia (TypeORM + SQLite)
+
+Se añadió persistencia de la cola para sobrevivir reinicios:
+
+- Dependencias: `typeorm`, `@nestjs/typeorm`, `sqlite3`.
+- Configuración en `AppModule` con `synchronize: true` (para producción se recomienda migraciones explícitas).
+- Entidad: `YoutubeJobEntity` (`apps/api/src/youtube/job.entity.ts`). Campos clave:
+  - `id` (UUID), `url`, `state`, `progress` (percent global), `downloadPercent`, `convertPercent`, `message`, `outputFile`, `title`, `durationSeconds`, timestamps (`createdAt`, `updatedAt`, `completedAt`).
+- Al reiniciar, jobs en estado activo (`pending`, `downloading`, `converting`) se marcan `queued` y se reencolan para evitar inconsistencias.
+- Las transiciones de estado se guardan mediante `persistAndCache` en `YoutubeService`.
+
+### Recuperación
+`onModuleInit` lee las filas de la tabla y reconstruye la cache en memoria para respuestas rápidas y manejo de concurrencia.
+
+### Doble Progreso
+Se almacena por separado `downloadPercent` y `convertPercent` para permitir al frontend mostrar dos barras más una barra global.
+
+### Cancelación Real
+`cancelJob` destruye el stream de YouTube, el write stream y envía `kill` al proceso ffmpeg para liberar recursos inmediatamente.
+
+### Próximas mejoras sugeridas
+- Paginación/filtrado en `GET /youtube/jobs` (limitar payload).
+- Índices adicionales (e.g. por `state`, `createdAt`).
+- Limpieza de filas terminales antiguas (`DELETE` basado en `completedAt`).
+- Migrar a migraciones manuales (`synchronize: false`).
+- SSE o WebSockets para actualizaciones push en lugar de polling.
+
+## Desarrollo rápido
+```bash
+pnpm install
+pnpm dev
+```
+
+Abrir: Frontend `http://localhost:5173`, API `http://localhost:3000`.
+
 ---
-Generado automáticamente.
+Actualizado con persistencia y doble progreso.

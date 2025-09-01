@@ -1,4 +1,4 @@
-import { Injectable, InternalServerErrorException, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, InternalServerErrorException, Logger, BadRequestException, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { YoutubeJobEntity } from './job.entity.js';
@@ -38,10 +38,12 @@ export interface JobProgress {
   createdAt: number;
   updatedAt: number;
   url?: string;
+  downloadPercent?: number; // 0-100 real descarga
+  convertPercent?: number; // 0-100 real conversión
 }
 
 @Injectable()
-export class YoutubeService {
+export class YoutubeService implements OnModuleInit {
   private mediaDir = join(process.cwd(), 'media');
   private readonly logger = new Logger(YoutubeService.name);
   private jobs = new Map<string, JobProgress>();
@@ -62,12 +64,50 @@ export class YoutubeService {
     return Array.from(this.jobs.values()).sort((a, b) => b.createdAt - a.createdAt);
   }
 
-  private updateJob(id: string, patch: Partial<JobProgress>) {
+  private async persistAndCache(id: string, patch: Partial<JobProgress & { error?: string }>) {
     const current = this.jobs.get(id);
     if (!current) return;
     const updated: JobProgress = { ...current, ...patch, updatedAt: Date.now() };
-    // Derivar percent principal en base a state/stagePercent si no se setea explícito
     this.jobs.set(id, updated);
+    const entityPatch: Partial<YoutubeJobEntity> = {
+      state: updated.state as any,
+      progress: Math.round(updated.percent),
+      message: updated.message,
+      updatedAt: updated.updatedAt,
+      stagePercent: updated.stagePercent ? Math.round(updated.stagePercent) : 0,
+      outputFile: updated.result?.fileName,
+      title: updated.result?.title,
+      durationSeconds: updated.result?.durationSeconds,
+      errorMessage: updated.error,
+      downloadPercent: updated.downloadPercent !== undefined ? Math.round(updated.downloadPercent) : undefined,
+      convertPercent: updated.convertPercent !== undefined ? Math.round(updated.convertPercent) : undefined,
+    };
+    await this.repo.update(id, entityPatch);
+  }
+
+  async onModuleInit() {
+    const rows = await this.repo.find();
+    for (const r of rows) {
+      const job: JobProgress = {
+        id: r.id,
+        state: r.state as any,
+  percent: r.progress,
+  stagePercent: r.stagePercent,
+  downloadPercent: r.downloadPercent,
+  convertPercent: r.convertPercent,
+        message: r.message || undefined,
+        createdAt: r.createdAt,
+        updatedAt: r.updatedAt || r.createdAt,
+        url: r.url,
+        result: r.outputFile ? { fileName: r.outputFile, path: join(this.mediaDir, r.outputFile), sizeBytes: 0, title: r.title, durationSeconds: r.durationSeconds } : undefined
+      };
+      if (['downloading', 'converting', 'pending'].includes(r.state)) {
+        job.state = 'queued';
+        job.message = 'Reencolado tras reinicio';
+        await this.repo.update(r.id, { state: 'queued', message: job.message });
+      }
+      this.jobs.set(r.id, job);
+    }
   }
 
   startMp3Job(url: string): string {
@@ -76,7 +116,8 @@ export class YoutubeService {
     }
     const id = randomUUID();
     const now = Date.now();
-    this.jobs.set(id, { id, state: 'pending', percent: 0, createdAt: now, updatedAt: now, url });
+    this.jobs.set(id, { id, state: 'pending', percent: 0, createdAt: now, updatedAt: now, url, message: 'Inicializando' });
+    this.repo.insert({ id, url, state: 'pending', createdAt: now, updatedAt: now, title: undefined, durationSeconds: undefined, outputFile: undefined, errorMessage: null, progress: 0, downloadProgress: 0, convertProgress: 0, message: 'Inicializando', stagePercent: 0 });
     this.tryStartJob(id);
     return id;
   }
@@ -88,6 +129,7 @@ export class YoutubeService {
     const id = randomUUID();
     const now = Date.now();
     this.jobs.set(id, { id, state: 'queued', percent: 0, createdAt: now, updatedAt: now, url, message: 'En cola' });
+    this.repo.insert({ id, url, state: 'queued', createdAt: now, updatedAt: now, title: undefined, durationSeconds: undefined, outputFile: undefined, errorMessage: null, progress: 0, downloadProgress: 0, convertProgress: 0, message: 'En cola', stagePercent: 0 });
     return id;
   }
 
@@ -95,7 +137,7 @@ export class YoutubeService {
     const job = this.jobs.get(id);
     if (!job) throw new BadRequestException('Job no existe');
     if (job.state !== 'queued') throw new BadRequestException('Job no está en cola');
-    this.updateJob(id, { state: 'pending', message: 'Inicializando...' });
+    this.persistAndCache(id, { state: 'pending', message: 'Inicializando...' });
     this.tryStartJob(id);
   }
 
@@ -108,7 +150,7 @@ export class YoutubeService {
     try { ctrl?.ffmpeg?.kill('SIGKILL'); } catch {}
     try { ctrl?.writeStream?.destroy(); } catch {}
     this.controllers.delete(id);
-    this.updateJob(id, { state: 'canceled', message: 'Cancelado', percent: 100 });
+    this.persistAndCache(id, { state: 'canceled', message: 'Cancelado', percent: 100 });
     if (this.currentRunning > 0) this.currentRunning = Math.max(0, this.currentRunning - 1);
     this.tryDequeue();
   }
@@ -122,7 +164,7 @@ export class YoutubeService {
     if (!job || !job.result) return false;
     try {
       if (existsSync(job.result.path)) require('node:fs').unlinkSync(job.result.path);
-      this.updateJob(id, { message: 'Archivo eliminado', result: undefined, state: job.state === 'done' ? 'done' : job.state });
+  this.persistAndCache(id, { message: 'Archivo eliminado', result: undefined, state: job.state === 'done' ? 'done' : job.state });
       return true;
     } catch {
       return false;
@@ -130,7 +172,7 @@ export class YoutubeService {
   }
 
   private async processMp3Job(id: string, url: string) {
-    this.updateJob(id, { state: 'downloading', message: 'Obteniendo info...' });
+  this.persistAndCache(id, { state: 'downloading', message: 'Obteniendo info...' });
     let info;
     try {
       info = await ytdl.getInfo(url);
@@ -157,15 +199,17 @@ export class YoutubeService {
         try { audioStream.destroy(); } catch {}
         return;
       }
-      let percent = total ? (downloaded / total) * 50 : Math.min(50, ((Date.now() - totalUnknownFallbackStart) / 30000) * 50);
-      if (percent > 50) percent = 50; // primera mitad
-      this.updateJob(id, { state: 'downloading', percent, stagePercent: percent, message: 'Descargando audio...' });
+      let downloadRatio = total ? (downloaded / total) : ((Date.now() - totalUnknownFallbackStart) / 30000);
+      if (downloadRatio > 1) downloadRatio = 1;
+      const downloadPercent = downloadRatio * 100; // real 0-100
+      const global = downloadRatio * 50; // 0-50 segmento
+      this.persistAndCache(id, { state: 'downloading', percent: global, stagePercent: downloadPercent, downloadPercent, message: 'Descargando audio...' });
     });
 
     const bail = (err: Error, context: string) => {
       if (finished) return;
       finished = true;
-      this.updateJob(id, { state: 'error', error: `${context}: ${err.message}`, message: 'Error', percent: 100 });
+  this.persistAndCache(id, { state: 'error', error: `${context}: ${err.message}`, message: 'Error', percent: 100 });
     };
     audioStream.on('error', e => bail(e, 'Error stream YouTube'));
     writeStream.on('error', e => bail(e, 'Error escritura archivo'));
@@ -173,14 +217,13 @@ export class YoutubeService {
     const ff = ffmpeg(audioStream as any)
       .audioBitrate(128)
       .toFormat('mp3')
-      .on('start', () => this.updateJob(id, { state: 'converting', message: 'Convirtiendo...', percent: 55 }))
+  .on('start', () => this.persistAndCache(id, { state: 'converting', message: 'Convirtiendo...', percent: 55 }))
       .on('progress', (p: any) => {
         const job = this.getJob(id);
         if (!job || job.state === 'canceled') return;
         const convPercent = p?.percent ? Math.min(100, Math.max(0, p.percent)) : 0;
-        // Mapear progreso conversión a segmento 50-99
-        const global = 50 + (convPercent / 100) * 49; // deja 1% final para flush
-        this.updateJob(id, { state: 'converting', percent: global, stagePercent: convPercent, message: 'Convirtiendo...' });
+        const global = 50 + (convPercent / 100) * 49; // 50-99
+        this.persistAndCache(id, { state: 'converting', percent: global, stagePercent: convPercent, convertPercent: convPercent, message: 'Convirtiendo...' });
       })
       .on('error', (err: Error) => bail(err, 'Error en conversión'))
       .on('end', () => {
@@ -192,7 +235,7 @@ export class YoutubeService {
           const sizeBytes = writeStream.bytesWritten;
           const durationSeconds = Number(info.videoDetails.lengthSeconds || '0') || undefined;
           const result: ConversionResult = { fileName, path: outputPath, sizeBytes, title: info.videoDetails.title, durationSeconds };
-            this.updateJob(id, { state: 'done', percent: 100, result, message: 'Completado' });
+            this.persistAndCache(id, { state: 'done', percent: 100, result, message: 'Completado', downloadPercent: 100, convertPercent: 100 });
         } catch (e: any) {
           bail(e, 'Error finalizando');
         }
@@ -214,14 +257,14 @@ export class YoutubeService {
     const job = this.jobs.get(id);
     if (!job) return;
     if (!this.canStartMore()) {
-      if (job.state === 'pending') this.updateJob(id, { state: 'queued', message: 'Esperando turno' });
+  if (job.state === 'pending') this.persistAndCache(id, { state: 'queued', message: 'Esperando turno' });
       return;
     }
     if (['pending', 'queued'].includes(job.state)) {
-      this.updateJob(id, { state: 'downloading', message: 'Obteniendo info...' });
+  this.persistAndCache(id, { state: 'downloading', message: 'Obteniendo info...' });
       this.currentRunning += 1;
       this.processMp3Job(id, job.url!).catch(err => {
-        this.updateJob(id, { state: 'error', error: err instanceof Error ? err.message : String(err), percent: 100 });
+  this.persistAndCache(id, { state: 'error', error: err instanceof Error ? err.message : String(err), percent: 100 });
         if (this.currentRunning > 0) this.currentRunning = Math.max(0, this.currentRunning - 1);
         this.tryDequeue();
       });

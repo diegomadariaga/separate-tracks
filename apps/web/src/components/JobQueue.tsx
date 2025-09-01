@@ -69,8 +69,27 @@ export const JobQueue: React.FC<JobQueueProps> = ({ refreshMs = 1200 }) => {
                   {isTerminal && <button onClick={() => action(job.id, deleteJob)} style={styles.btn}>🗑️</button>}
                 </div>
               </div>
-              <div style={styles.progressBarOuter}>
-                <div style={{ ...styles.progressBarInner, width: `${Math.min(100, Math.max(0, job.percent)).toFixed(2)}%`, background: colorForState(job.state) }} />
+              <div style={styles.dualBarsWrapper}>
+                <div style={styles.labelRow}>
+                  <span style={styles.barLabel}>Descarga</span>
+                  <span style={styles.barValue}>{(job.downloadPercent ?? (job.state === 'done' ? 100 : job.state === 'downloading' ? (job.percent <= 50 ? (job.percent/50)*100 : 100) : (job.percent <= 50 ? (job.percent/50)*100 : 100))).toFixed(0)}%</span>
+                </div>
+                <div style={styles.progressBarOuter}>
+                  <div style={{ ...styles.progressBarInner, width: `${Math.min(100, job.downloadPercent ?? (job.percent <= 50 ? job.percent * 2 : 100)).toFixed(2)}%`, background: '#0ea5e9' }} />
+                </div>
+                <div style={styles.labelRow}>
+                  <span style={styles.barLabel}>Conversión</span>
+                  <span style={styles.barValue}>{(job.convertPercent ?? (job.state === 'converting' ? Math.max(0, Math.min(100, ((job.percent - 50) / 49) * 100)) : job.state === 'done' ? 100 : 0)).toFixed(0)}%</span>
+                </div>
+                <div style={styles.progressBarOuter}>
+                  <div style={{ ...styles.progressBarInner, width: `${Math.min(100, job.convertPercent ?? (job.state === 'converting' ? Math.max(0, Math.min(100, ((job.percent - 50) / 49) * 100)) : job.state === 'done' ? 100 : 0)).toFixed(2)}%`, background: '#f59e0b' }} />
+                </div>
+                <div style={styles.globalWrapper}>
+                  <div style={styles.globalLabel}>Total</div>
+                  <div style={styles.progressBarOuter}>
+                    <div style={{ ...styles.progressBarInner, width: `${Math.min(100, job.percent).toFixed(2)}%`, background: colorForState(job.state) }} />
+                  </div>
+                </div>
               </div>
             </li>
           );
@@ -105,7 +124,13 @@ const styles: Record<string, React.CSSProperties> = {
   actions: { display: 'flex', gap: 6 },
   btn: { background: '#334155', color: '#fff', border: 'none', padding: '4px 8px', borderRadius: 6, cursor: 'pointer', fontSize: 12 },
   progressBarOuter: { height: 6, background: '#334155', borderRadius: 4, overflow: 'hidden' },
-  progressBarInner: { height: '100%', transition: 'width .6s ease' }
+  progressBarInner: { height: '100%', transition: 'width .5s ease' },
+  dualBarsWrapper: { display: 'flex', flexDirection: 'column', gap: 4 },
+  labelRow: { display: 'flex', justifyContent: 'space-between', fontSize: 10, opacity: 0.8 },
+  barLabel: { fontWeight: 500 },
+  barValue: { fontVariantNumeric: 'tabular-nums' },
+  globalWrapper: { marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 },
+  globalLabel: { fontSize: 10, opacity: 0.7 }
 };
 
 export default JobQueue;

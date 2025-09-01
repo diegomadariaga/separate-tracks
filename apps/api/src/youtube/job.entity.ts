@@ -1,6 +1,6 @@
 import { Entity, PrimaryColumn, Column, Index } from 'typeorm';
 
-export type JobState = 'queued' | 'running' | 'completed' | 'error' | 'canceled';
+export type JobState = 'queued' | 'pending' | 'downloading' | 'converting' | 'done' | 'error' | 'canceled';
 
 @Entity({ name: 'youtube_jobs' })
 export class YoutubeJobEntity {
@@ -34,6 +34,15 @@ export class YoutubeJobEntity {
   @Column({ type: 'int', default: 0 })
   convertProgress!: number;
 
+  @Column({ type: 'int', default: 0 })
+  downloadPercent?: number;
+
+  @Column({ type: 'int', default: 0 })
+  convertPercent?: number;
+
+  @Column({ type: 'varchar', nullable: true })
+  message?: string;
+
   @Index()
   @Column({ type: 'bigint' })
   createdAt!: number; // epoch ms
@@ -45,6 +54,9 @@ export class YoutubeJobEntity {
   @Index()
   @Column({ type: 'bigint', nullable: true })
   startedAt?: number;
+
+  @Column({ type: 'int', default: 0 })
+  stagePercent?: number;
 
   @Column({ type: 'bigint', nullable: true })
   completedAt?: number;
