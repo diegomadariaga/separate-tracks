@@ -7,8 +7,11 @@ declare module 'fluent-ffmpeg' {
   interface FfmpegCommand extends EventEmitter {
     audioBitrate(bitrate: number | string): FfmpegCommand;
     toFormat(format: string): FfmpegCommand;
+    save(output: string): FfmpegCommand;
     on(event: 'error', handler: (err: Error) => void): FfmpegCommand;
     on(event: 'end', handler: () => void): FfmpegCommand;
+    on(event: 'start', handler: (commandLine: string) => void): FfmpegCommand;
+    on(event: 'progress', handler: (progress: { frames?: number; currentFps?: number; currentKbps?: number; targetSize?: number; timemark?: string; percent?: number }) => void): FfmpegCommand;
     pipe(stream: Writable, options?: { end?: boolean }): Writable;
   }
 

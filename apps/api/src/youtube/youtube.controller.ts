@@ -19,13 +19,31 @@ export class YoutubeController {
     };
   }
 
+  @Post('raw')
+  async raw(@Body() dto: DownloadYoutubeDto) {
+    const result = await this.youtube.downloadAudioRaw(dto.url);
+    return {
+      file: result.fileName,
+      sizeBytes: result.sizeBytes,
+      format: result.format,
+      downloadUrl: `/youtube/download/${encodeURIComponent(result.fileName)}`
+    };
+  }
+
   @Get('download/:file')
   async download(@Param('file') file: string, @Res() res: Response) {
     const mediaDir = join(process.cwd(), 'media');
     const filePath = join(mediaDir, file);
     if (!existsSync(filePath)) throw new NotFoundException('Archivo no encontrado');
     const stat = statSync(filePath);
-    res.setHeader('Content-Type', 'audio/mpeg');
+    const ext = file.split('.').pop()?.toLowerCase();
+    const mime = (
+      ext === 'mp3' ? 'audio/mpeg' :
+      ext === 'm4a' ? 'audio/mp4' :
+      ext === 'webm' ? 'audio/webm' :
+      'application/octet-stream'
+    );
+    res.setHeader('Content-Type', mime);
     res.setHeader('Content-Length', stat.size.toString());
     res.setHeader('Content-Disposition', `attachment; filename="${file}"`);
     const stream = createReadStream(filePath);
