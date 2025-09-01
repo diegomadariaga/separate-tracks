@@ -44,6 +44,8 @@ export interface JobProgress {
   durationSeconds?: number;
   thumbnailUrl?: string;
   author?: string;
+  downloadEtaSeconds?: number;
+  convertEtaSeconds?: number;
 }
 
 @Injectable()
@@ -57,6 +59,30 @@ export class YoutubeService implements OnModuleInit {
   private readonly maxConcurrent = 3;
   private currentRunning = 0;
   private controllers = new Map<string, { audioStream?: any; ffmpeg?: any; writeStream?: any }>();
+  private sseClients = new Set<import('http').ServerResponse>();
+  private lastBroadcast: Record<string, number> = {};
+
+  registerSseClient(res: import('http').ServerResponse) {
+    this.sseClients.add(res);
+    res.on('close', () => this.sseClients.delete(res));
+    const snapshot = this.listJobs();
+    res.write('event: init\n');
+    res.write(`data: ${JSON.stringify(snapshot)}\n\n`);
+  }
+
+  private broadcast(job: JobProgress) {
+    if (!this.sseClients.size) return;
+    const now = Date.now();
+    if (this.lastBroadcast[job.id] && now - this.lastBroadcast[job.id] < 150) return; // throttle
+    this.lastBroadcast[job.id] = now;
+    const payload = { ...job };
+    for (const client of this.sseClients) {
+      try {
+        client.write('event: job\n');
+        client.write(`data: ${JSON.stringify(payload)}\n\n`);
+      } catch {/* ignore */}
+    }
+  }
 
   constructor(@InjectRepository(YoutubeJobEntity) private repo: Repository<YoutubeJobEntity>) {}
 
@@ -89,6 +115,7 @@ export class YoutubeService implements OnModuleInit {
       convertPercent: updated.convertPercent !== undefined ? Math.round(updated.convertPercent) : undefined,
     };
     await this.repo.update(id, entityPatch);
+    this.broadcast(updated);
   }
 
   async onModuleInit() {
@@ -172,6 +199,18 @@ export class YoutubeService implements OnModuleInit {
     try { ctrl?.audioStream?.destroy(); } catch {}
     try { ctrl?.ffmpeg?.kill('SIGKILL'); } catch {}
     try { ctrl?.writeStream?.destroy(); } catch {}
+    // eliminar archivo temporal si existe
+    try {
+      const fs = require('node:fs');
+      const tempGlob = (name: string) => name.includes(id) && name.endsWith('.download');
+      if (fs.existsSync(this.mediaDir)) {
+        for (const f of fs.readdirSync(this.mediaDir)) {
+          if (tempGlob(f)) {
+            try { fs.unlinkSync(join(this.mediaDir, f)); } catch {}
+          }
+        }
+      }
+    } catch {}
     this.controllers.delete(id);
     this.persistAndCache(id, { state: 'canceled', message: 'Cancelado', percent: 100 });
     if (this.currentRunning > 0) this.currentRunning = Math.max(0, this.currentRunning - 1);
@@ -235,16 +274,28 @@ export class YoutubeService implements OnModuleInit {
       this.persistAndCache(id, { title: earlyTitle, durationSeconds: earlyDuration, author, thumbnailUrl: thumb });
     } catch {/* ignore */}
     const titleSlug = info.videoDetails.title.replace(/[^a-z0-9]+/gi, '-').slice(0, 60).replace(/^-|-$/g, '').toLowerCase();
-  const fileName = `${titleSlug || 'audio'}-${id}.mp3`;
+    const fileName = `${titleSlug || 'audio'}-${id}.mp3`;
     const outputPath = join(this.mediaDir, fileName);
+    const tempPath = join(this.mediaDir, `${titleSlug || 'audio'}-${id}.download`);
 
-  const audioStream = ytdl(url, { quality: 'highestaudio', filter: 'audioonly' });
     let finished = false;
-    const writeStream = createWriteStream(outputPath);
-  this.controllers.set(id, { audioStream, writeStream });
 
+    const bail = (err: Error, context: string) => {
+      if (finished) return;
+      finished = true;
+      this.persistAndCache(id, { state: 'error', error: `${context}: ${err.message}`, message: 'Error', percent: 100 });
+      try { this.controllers.get(id)?.audioStream?.destroy(); } catch {}
+      try { this.controllers.get(id)?.ffmpeg?.kill('SIGKILL'); } catch {}
+      try { this.controllers.get(id)?.writeStream?.destroy(); } catch {}
+      this.controllers.delete(id);
+      if (this.currentRunning > 0) this.currentRunning = Math.max(0, this.currentRunning - 1);
+    };
+
+    // 1) Descargar completamente el audio a archivo temporal
+    const audioStream = ytdl(url, { quality: 'highestaudio', filter: 'audioonly' });
+    const tempWrite = createWriteStream(tempPath);
+    this.controllers.set(id, { audioStream, writeStream: tempWrite });
     const totalUnknownFallbackStart = Date.now();
-
     audioStream.on('progress', (_chunk: number, downloaded: number, total: number) => {
       const job = this.getJob(id);
       if (!job || job.state === 'canceled') {
@@ -253,54 +304,93 @@ export class YoutubeService implements OnModuleInit {
       }
       let downloadRatio = total ? (downloaded / total) : ((Date.now() - totalUnknownFallbackStart) / 30000);
       if (downloadRatio > 1) downloadRatio = 1;
-      const downloadPercent = downloadRatio * 100; // real 0-100
-      const global = downloadRatio * 50; // 0-50 segmento
-      this.persistAndCache(id, { state: 'downloading', percent: global, stagePercent: downloadPercent, downloadPercent, message: 'Descargando audio...' });
+      const downloadPercent = downloadRatio * 100;
+      let downloadEtaSeconds: number | undefined;
+      if (total && downloaded > 0) {
+        const elapsed = (Date.now() - totalUnknownFallbackStart) / 1000;
+        const rate = downloaded / elapsed; // bytes/s
+        const remaining = total - downloaded;
+        if (rate > 0) downloadEtaSeconds = remaining / rate;
+      }
+      this.persistAndCache(id, { state: 'downloading', percent: downloadPercent * 0.5, stagePercent: downloadPercent, downloadPercent, message: 'Descargando audio...', downloadEtaSeconds });
     });
-
-    const bail = (err: Error, context: string) => {
-      if (finished) return;
-      finished = true;
-  this.persistAndCache(id, { state: 'error', error: `${context}: ${err.message}`, message: 'Error', percent: 100 });
-    };
     audioStream.on('error', e => bail(e, 'Error stream YouTube'));
-    writeStream.on('error', e => bail(e, 'Error escritura archivo'));
-
-    const ff = ffmpeg(audioStream as any)
-      .audioBitrate(128)
-      .toFormat('mp3')
-      .on('start', () => this.persistAndCache(id, { state: 'converting', message: 'Convirtiendo...' }))
-      .on('progress', (p: any) => {
-        const job = this.getJob(id);
-        if (!job || job.state === 'canceled') return;
-        const convPercent = p?.percent ? Math.min(100, Math.max(0, p.percent)) : 0;
-        const rawGlobal = 50 + (convPercent / 100) * 49; // 50-99
-        const global = Math.max(job.percent, rawGlobal); // evitar retroceso
-        this.persistAndCache(id, { state: 'converting', percent: global, stagePercent: convPercent, convertPercent: convPercent, message: 'Convirtiendo...' });
-      })
-      .on('error', (err: Error) => bail(err, 'Error en conversión'))
-      .on('end', () => {
-        if (finished) return;
-        finished = true;
-        const job = this.getJob(id);
-        if (job && job.state === 'canceled') return; // no actualizamos si se canceló
-        try {
-          const sizeBytes = writeStream.bytesWritten;
-          const durationSeconds = Number(info.videoDetails.lengthSeconds || '0') || undefined;
-          const result: ConversionResult = { fileName, path: outputPath, sizeBytes, title: info.videoDetails.title, durationSeconds };
+    tempWrite.on('error', e => bail(e, 'Error escritura archivo'));
+    tempWrite.on('finish', () => {
+      const job = this.getJob(id);
+      if (!job || job.state === 'canceled') return;
+      // Aseguramos marcar descarga completa al iniciar conversión
+      this.persistAndCache(id, { state: 'converting', message: 'Convirtiendo...', stagePercent: 0, convertPercent: 0, percent: 50, downloadPercent: 100 });
+      // 2) Iniciar conversión desde archivo temporal
+      const ff = ffmpeg(tempPath)
+        .audioBitrate(128)
+        .toFormat('mp3')
+        .on('progress', (p: any) => {
+          const job2 = this.getJob(id);
+          if (!job2 || job2.state === 'canceled') return;
+            let convPercent: number | undefined = undefined;
+            if (p?.percent && Number.isFinite(p.percent)) {
+              convPercent = Math.min(100, Math.max(0, p.percent));
+            } else if (p?.timemark && info?.videoDetails?.lengthSeconds) {
+              // Derivar usando timemark (HH:MM:SS.xx)
+              const tm = p.timemark as string;
+              const parts = tm.split(':').map(Number);
+              if (parts.length === 3 && parts.every(n => Number.isFinite(n))) {
+                const secs = parts[0] * 3600 + parts[1] * 60 + parts[2];
+                const total = Number(info.videoDetails.lengthSeconds) || 0;
+                if (total > 0) convPercent = Math.min(100, (secs / total) * 100);
+              }
+            }
+            if (convPercent === undefined) convPercent = 0;
+            const global = 50 + (convPercent * 0.5); // 50-100
+            // No bajar global si por alguna razón convPercent retrocede
+            const safeGlobal = Math.max(job2.percent, global);
+            let convertEtaSeconds: number | undefined;
+            if (info?.videoDetails?.lengthSeconds && convPercent > 0 && convPercent < 100) {
+              const totalSecs = Number(info.videoDetails.lengthSeconds) || 0;
+              const doneSecs = (convPercent / 100) * totalSecs;
+              let elapsedSecs: number | undefined;
+              if (p?.timemark) {
+                const tp = (p.timemark as string).split(':').map(Number);
+                if (tp.length === 3 && tp.every(n => Number.isFinite(n))) elapsedSecs = tp[0] * 3600 + tp[1] * 60 + tp[2];
+              }
+              if (!elapsedSecs || elapsedSecs <= 0) elapsedSecs = doneSecs;
+              const rate = doneSecs / elapsedSecs;
+              const remainingSecs = totalSecs - doneSecs;
+              if (rate > 0) convertEtaSeconds = remainingSecs / rate;
+            }
+            this.persistAndCache(id, { state: 'converting', percent: safeGlobal, stagePercent: convPercent, convertPercent: convPercent, message: 'Convirtiendo...', convertEtaSeconds });
+        })
+        .on('error', (err: Error) => bail(err, 'Error en conversión'))
+        .on('end', () => {
+          if (finished) return;
+          finished = true;
+          const job2 = this.getJob(id);
+          if (job2 && job2.state === 'canceled') return;
+          try {
+            const sizeBytes = require('node:fs').statSync(outputPath).size;
+            const durationSeconds = Number(info.videoDetails.lengthSeconds || '0') || undefined;
+            const result: ConversionResult = { fileName, path: outputPath, sizeBytes, title: info.videoDetails.title, durationSeconds };
             const author = info.videoDetails.author?.name || (info.videoDetails.ownerChannelName) || undefined;
             const thumb = (info.videoDetails.thumbnails || []).sort((a,b)=> (b.width*b.height)-(a.width*a.height))[0]?.url;
             this.persistAndCache(id, { state: 'done', percent: 100, result, message: 'Completado', downloadPercent: 100, convertPercent: 100, title: info.videoDetails.title, durationSeconds, author, thumbnailUrl: thumb });
-        } catch (e: any) {
-          bail(e, 'Error finalizando');
-        }
-      })
-      .on('close', () => {
-        this.controllers.delete(id);
-        if (this.currentRunning > 0) this.currentRunning = Math.max(0, this.currentRunning - 1);
-      })
-      .save(outputPath);
-    this.controllers.set(id, { audioStream, writeStream, ffmpeg: ff });
+          } catch (e: any) {
+            bail(e, 'Error finalizando');
+          } finally {
+            // cleanup temp
+            try { require('node:fs').unlinkSync(tempPath); } catch {}
+          }
+        })
+        .on('close', () => {
+          this.controllers.delete(id);
+          if (this.currentRunning > 0) this.currentRunning = Math.max(0, this.currentRunning - 1);
+        })
+        .save(outputPath);
+      const ctrl = this.controllers.get(id) || {};
+      this.controllers.set(id, { ...ctrl, ffmpeg: ff });
+    });
+
+    audioStream.pipe(tempWrite);
   }
 
   private canStartMore(): boolean {

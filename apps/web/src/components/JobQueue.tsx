@@ -27,7 +27,35 @@ export const JobQueue: React.FC<JobQueueProps> = ({ refreshMs = 1200 }) => {
     }
   }, []);
 
-  usePolling(fetchJobs, { interval: refreshMs, immediate: true, enabled: true });
+  // SSE subscription replaces polling when available
+  const sseRef = React.useRef<EventSource | null>(null);
+  React.useEffect(() => {
+    const base = getApiBase();
+    const es = new EventSource(`${base}/youtube/stream`);
+    sseRef.current = es;
+    es.addEventListener('init', (e: MessageEvent) => {
+      try { setJobs(JSON.parse(e.data)); } catch {}
+    });
+    es.addEventListener('job', (e: MessageEvent) => {
+      try {
+        const job = JSON.parse(e.data) as QueueJobSummary;
+        setJobs(prev => {
+          const map = new Map(prev.map(j => [j.id, j] as const));
+          map.set(job.id, { ...map.get(job.id), ...job });
+          return Array.from(map.values()).sort((a,b)=> b.createdAt - a.createdAt);
+        });
+      } catch {}
+    });
+    es.onerror = () => {
+      // fallback to polling if SSE fails
+      if (es.readyState === EventSource.CLOSED) {
+        fetchJobs();
+      }
+    };
+    return () => { es.close(); };
+  }, [fetchJobs]);
+  // Initial fetch in case SSE arrives late
+  React.useEffect(() => { fetchJobs(); }, [fetchJobs]);
 
   const runJobAction = React.useCallback(async (id: string, fn: (id: string) => Promise<void>) => {
     await fn(id);
@@ -113,12 +141,17 @@ export const JobQueue: React.FC<JobQueueProps> = ({ refreshMs = 1200 }) => {
                 </div>
               </div>
               <div style={styles.dualBarsWrapper}>
-                <div style={styles.labelRow}>
-                  <span style={styles.barLabel}>Progreso</span>
-                  <span style={styles.barValue}>{Math.min(100, job.percent).toFixed(0)}%</span>
+                <div style={styles.labelRow}><span style={styles.barLabel}>Descarga</span><span style={styles.barValue}>{(job.downloadPercent ?? (job.state==='downloading'? (job.percent*2):0)).toFixed(0)}% {renderEta(job.downloadEtaSeconds)}</span></div>
+                <div style={styles.progressBarOuter} title="Progreso de descarga">
+                  <div style={{ ...styles.progressBarInner, width: `${Math.min(100, (job.downloadPercent ?? (job.state==='downloading'? (job.percent*2):0))).toFixed(2)}%`, background: '#0ea5e9' }} />
                 </div>
+                <div style={styles.labelRow}><span style={styles.barLabel}>Conversión</span><span style={styles.barValue}>{(job.convertPercent ?? (job.state==='converting'? ((job.percent-50)*2):0)).toFixed(0)}% {renderEta(job.convertEtaSeconds)}</span></div>
+                <div style={styles.progressBarOuter} title="Progreso de conversión">
+                  <div style={{ ...styles.progressBarInner, width: `${Math.min(100, (job.convertPercent ?? (job.state==='converting'? ((job.percent-50)*2):0))).toFixed(2)}%`, background: '#6366f1' }} />
+                </div>
+                <div style={styles.labelRow}><span style={styles.barLabel}>Total</span><span style={styles.barValue}>{Math.min(100, job.percent).toFixed(0)}%</span></div>
                 <div style={styles.progressBarOuter} title="Progreso total del job (descarga + conversión)">
-                  <div style={{ ...styles.progressBarInner, width: `${Math.min(100, job.percent).toFixed(2)}%`, background: '#6366f1' }} />
+                  <div style={{ ...styles.progressBarInner, width: `${Math.min(100, job.percent).toFixed(2)}%`, background: 'linear-gradient(90deg,#0ea5e9,#6366f1)' }} />
                 </div>
               </div>
             </li>
@@ -159,6 +192,16 @@ export const JobQueue: React.FC<JobQueueProps> = ({ refreshMs = 1200 }) => {
 // Utilities
 const TERMINAL_STATES = ['done', 'error', 'canceled'];
 const ACTIVE_STATES = ['downloading', 'converting', 'pending', 'queued'];
+
+function renderEta(sec?: number) {
+  if (sec == null || !Number.isFinite(sec)) return '';
+  if (sec < 0) return '';
+  const s = Math.max(0, Math.round(sec));
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  if (m === 0) return `(${r}s)`;
+  return `(${m}m${r.toString().padStart(2,'0')}s)`;
+}
 
 function formatDuration(totalSeconds: number) {
   if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) return '00:00';

@@ -35,6 +35,8 @@ export interface QueueJobSummary {
   downloadPercent?: number;
   convertPercent?: number;
   stagePercent?: number;
+  downloadEtaSeconds?: number;
+  convertEtaSeconds?: number;
 }
 
 export async function enqueueYoutubeMp3(url: string, signal?: AbortSignal): Promise<{ jobId: string }> {

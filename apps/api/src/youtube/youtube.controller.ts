@@ -60,7 +60,9 @@ export class YoutubeController {
       author: (j as any).author,
       hasFile: !!j.result,
       createdAt: j.createdAt,
-      updatedAt: j.updatedAt
+      updatedAt: j.updatedAt,
+      downloadEtaSeconds: j.downloadEtaSeconds != null ? Math.round(j.downloadEtaSeconds) : undefined,
+      convertEtaSeconds: j.convertEtaSeconds != null ? Math.round(j.convertEtaSeconds) : undefined
     }));
   }
 
@@ -120,6 +122,8 @@ export class YoutubeController {
       durationSeconds: job.durationSeconds || job.result?.durationSeconds,
       thumbnailUrl: (job as any).thumbnailUrl,
       author: (job as any).author,
+      downloadEtaSeconds: job.downloadEtaSeconds != null ? Math.round(job.downloadEtaSeconds) : undefined,
+      convertEtaSeconds: job.convertEtaSeconds != null ? Math.round(job.convertEtaSeconds) : undefined,
     };
     if (job.state === 'done' && job.result) {
       base.result = {
@@ -152,5 +156,15 @@ export class YoutubeController {
     res.setHeader('Content-Disposition', `attachment; filename="${file}"`);
     const stream = createReadStream(filePath);
     stream.pipe(res);
+  }
+
+  @Get('stream')
+  async stream(@Res() res: Response) {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders?.();
+    // Registro en servicio
+    (this.youtube as any).registerSseClient(res);
   }
 }
