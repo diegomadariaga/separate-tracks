@@ -269,12 +269,13 @@ export class YoutubeService implements OnModuleInit {
     const ff = ffmpeg(audioStream as any)
       .audioBitrate(128)
       .toFormat('mp3')
-  .on('start', () => this.persistAndCache(id, { state: 'converting', message: 'Convirtiendo...', percent: 55 }))
+      .on('start', () => this.persistAndCache(id, { state: 'converting', message: 'Convirtiendo...' }))
       .on('progress', (p: any) => {
         const job = this.getJob(id);
         if (!job || job.state === 'canceled') return;
         const convPercent = p?.percent ? Math.min(100, Math.max(0, p.percent)) : 0;
-        const global = 50 + (convPercent / 100) * 49; // 50-99
+        const rawGlobal = 50 + (convPercent / 100) * 49; // 50-99
+        const global = Math.max(job.percent, rawGlobal); // evitar retroceso
         this.persistAndCache(id, { state: 'converting', percent: global, stagePercent: convPercent, convertPercent: convPercent, message: 'Convirtiendo...' });
       })
       .on('error', (err: Error) => bail(err, 'Error en conversión'))

@@ -79,7 +79,7 @@ export const JobQueue: React.FC<JobQueueProps> = ({ refreshMs = 1200 }) => {
                       {job.author && duration && <span style={styles.dot}>•</span>}
                       {duration && <span style={styles.meta}>{duration}</span>}
                     </div>
-                    <div style={styles.meta}>{job.state} · {percent}% {job.message ? `· ${job.message}` : ''}</div>
+                    <div style={styles.meta}>{job.state}{job.message ? ` · ${job.message}` : ''}</div>
                   </div>
                 </div>
                 <div style={styles.actions}>
@@ -98,24 +98,11 @@ export const JobQueue: React.FC<JobQueueProps> = ({ refreshMs = 1200 }) => {
               </div>
               <div style={styles.dualBarsWrapper}>
                 <div style={styles.labelRow}>
-                  <span style={styles.barLabel}>Descarga</span>
-                  <span style={styles.barValue}>{(job.downloadPercent ?? (job.state === 'done' ? 100 : job.state === 'downloading' ? (job.percent <= 50 ? (job.percent/50)*100 : 100) : (job.percent <= 50 ? (job.percent/50)*100 : 100))).toFixed(0)}%</span>
+                  <span style={styles.barLabel}>Progreso</span>
+                  <span style={styles.barValue}>{Math.min(100, job.percent).toFixed(0)}%</span>
                 </div>
-                <div style={styles.progressBarOuter}>
-                  <div style={{ ...styles.progressBarInner, width: `${Math.min(100, job.downloadPercent ?? (job.percent <= 50 ? job.percent * 2 : 100)).toFixed(2)}%`, background: '#0ea5e9' }} />
-                </div>
-                <div style={styles.labelRow}>
-                  <span style={styles.barLabel}>Conversión</span>
-                  <span style={styles.barValue}>{(job.convertPercent ?? (job.state === 'converting' ? Math.max(0, Math.min(100, ((job.percent - 50) / 49) * 100)) : job.state === 'done' ? 100 : 0)).toFixed(0)}%</span>
-                </div>
-                <div style={styles.progressBarOuter}>
-                  <div style={{ ...styles.progressBarInner, width: `${Math.min(100, job.convertPercent ?? (job.state === 'converting' ? Math.max(0, Math.min(100, ((job.percent - 50) / 49) * 100)) : job.state === 'done' ? 100 : 0)).toFixed(2)}%`, background: '#f59e0b' }} />
-                </div>
-                <div style={styles.globalWrapper}>
-                  <div style={styles.globalLabel}>Total</div>
-                  <div style={styles.progressBarOuter}>
-                    <div style={{ ...styles.progressBarInner, width: `${Math.min(100, job.percent).toFixed(2)}%`, background: colorForState(job.state) }} />
-                  </div>
+                <div style={styles.progressBarOuter} title="Progreso total del job (descarga + conversión)">
+                  <div style={{ ...styles.progressBarInner, width: `${Math.min(100, job.percent).toFixed(2)}%`, background: '#6366f1' }} />
                 </div>
               </div>
             </li>
