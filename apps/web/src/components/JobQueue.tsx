@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { listJobs, startJob, cancelJob, deleteJobAll, forceDeleteJob, getApiBase, QueueJobSummary } from '../lib/api.js';
+import ConfirmModal from './ConfirmModal.js';
 
 interface JobQueueProps {
   refreshMs?: number;
@@ -9,6 +10,8 @@ export const JobQueue: React.FC<JobQueueProps> = ({ refreshMs = 1200 }) => {
   const [jobs, setJobs] = React.useState<QueueJobSummary[]>([]);
   const [loading, setLoading] = React.useState(false);
   const timerRef = React.useRef<number | null>(null);
+  const [confirmState, setConfirmState] = React.useState<{ open: boolean; jobId?: string; terminal?: boolean }>(() => ({ open: false }));
+  const [deleting, setDeleting] = React.useState(false);
 
   const fetchJobs = React.useCallback(async () => {
     setLoading(true);
@@ -44,6 +47,7 @@ export const JobQueue: React.FC<JobQueueProps> = ({ refreshMs = 1200 }) => {
   };
 
   return (
+    <>
     <div style={styles.wrapper}>
       <h3 style={styles.heading}>Cola de trabajos</h3>
       {loading && jobs.length === 0 && <div style={styles.info}>Cargando jobs...</div>}
@@ -67,17 +71,10 @@ export const JobQueue: React.FC<JobQueueProps> = ({ refreshMs = 1200 }) => {
                   {job.hasFile && job.file && <button title="Descargar archivo" onClick={() => openDownload(job.file!)} style={styles.btn}>⬇</button>}
                   <button
                     title={isTerminal ? 'Eliminar todo' : 'Cancelar y eliminar'}
-                    onClick={async () => {
-                      const confirmText = isTerminal ? '¿Eliminar archivo y registro?' : 'El job está activo. ¿Cancelar y eliminar?';
-                      if (!window.confirm(confirmText)) return;
-                      if (isTerminal) {
-                        await action(job.id, deleteJobAll);
-                      } else {
-                        await action(job.id, forceDeleteJob);
-                      }
-                    }}
-                    style={{ ...styles.btn, background: '#991b1b' }}
-                  >🗑️</button>
+                    disabled={deleting}
+                    onClick={() => setConfirmState({ open: true, jobId: job.id, terminal: isTerminal })}
+                    style={{ ...styles.btn, background: '#991b1b', opacity: deleting ? 0.6 : 1, cursor: deleting ? 'not-allowed' : 'pointer' }}
+                  >{deleting && confirmState.jobId === job.id ? '…' : '🗑️'}</button>
                 </div>
               </div>
               <div style={styles.dualBarsWrapper}>
@@ -107,8 +104,38 @@ export const JobQueue: React.FC<JobQueueProps> = ({ refreshMs = 1200 }) => {
         })}
       </ul>
     </div>
+    <ConfirmModal
+      open={confirmState.open}
+      title={confirmState.terminal ? 'Eliminar archivo y registro' : 'Cancelar y eliminar job'}
+      message={confirmState.terminal ? 'Esto eliminará definitivamente el archivo y el registro.\n¿Deseas continuar?' : 'El job está activo. Se cancelará y se eliminará el archivo (si existe) y el registro.\n¿Continuar?'}
+      confirmText={confirmState.terminal ? 'Eliminar' : 'Cancelar y eliminar'}
+      danger
+      onCancel={() => setConfirmState({ open: false })}
+      onConfirm={async () => {
+        if (!confirmState.jobId) return;
+        setDeleting(true);
+        try {
+          if (confirmState.terminal) {
+            await deleteJobAll(confirmState.jobId);
+          } else {
+            await forceDeleteJob(confirmState.jobId);
+          }
+          await fetchJobs();
+        } catch (e) {
+          // eslint-disable-next-line no-console
+          console.error(e);
+        } finally {
+          setDeleting(false);
+          setConfirmState({ open: false });
+        }
+      }}
+    />
+    </>
   );
 };
+
+// Append modal outside list rendering but inside wrapper root using fragment
+// (Modify return to include modal)
 
 function colorForState(state: string) {
   switch (state) {
