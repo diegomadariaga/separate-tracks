@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Get, Param, NotFoundException, Res } from '@nestjs/common';
+import { Controller, Post, Body, Get, Param, NotFoundException, Res, Delete } from '@nestjs/common';
 import { YoutubeService } from './youtube.service.js';
 import { DownloadYoutubeDto } from './youtube.dto.js';
 import type { Response } from 'express';
@@ -36,6 +36,54 @@ export class YoutubeController {
   async startAsync(@Body() dto: DownloadYoutubeDto) {
     const jobId = this.youtube.startMp3Job(dto.url);
     return { jobId };
+  }
+
+  @Post('mp3/enqueue')
+  async enqueue(@Body() dto: DownloadYoutubeDto) {
+    const jobId = this.youtube.enqueueMp3Job(dto.url);
+    return { jobId };
+  }
+
+  @Get('jobs')
+  async listJobs() {
+    return this.youtube.listJobs().map(j => ({
+      id: j.id,
+      state: j.state,
+      percent: Number(j.percent.toFixed(2)),
+      message: j.message,
+      file: j.result?.fileName,
+      title: j.result?.title,
+      durationSeconds: j.result?.durationSeconds,
+      hasFile: !!j.result,
+      createdAt: j.createdAt,
+      updatedAt: j.updatedAt
+    }));
+  }
+
+  @Post('job/:id/start')
+  async startJob(@Param('id') id: string) {
+    this.youtube.startQueuedJob(id);
+    return { ok: true };
+  }
+
+  @Post('job/:id/cancel')
+  async cancelJob(@Param('id') id: string) {
+    this.youtube.cancelJob(id);
+    return { ok: true };
+  }
+
+  @Delete('job/:id')
+  async deleteJob(@Param('id') id: string) {
+    const deleted = this.youtube.deleteJob(id);
+    if (!deleted) throw new NotFoundException('Job no encontrado');
+    return { ok: true };
+  }
+
+  @Delete('job/:id/file')
+  async deleteJobFile(@Param('id') id: string) {
+    const ok = this.youtube.deleteJobFile(id);
+    if (!ok) throw new NotFoundException('Archivo/job no encontrado');
+    return { ok: true };
   }
 
   @Get('progress/:id')

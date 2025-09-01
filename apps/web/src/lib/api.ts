@@ -15,6 +15,56 @@ export interface ProgressResponse {
   error?: string;
 }
 
+export interface QueueJobSummary {
+  id: string;
+  state: string;
+  percent: number;
+  message?: string;
+  file?: string;
+  title?: string;
+  durationSeconds?: number;
+  hasFile: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export async function enqueueYoutubeMp3(url: string, signal?: AbortSignal): Promise<{ jobId: string }> {
+  const res = await fetch(`${getApiBase()}/youtube/mp3/enqueue`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url }),
+    signal
+  });
+  if (!res.ok) throw new Error(`Error enqueue (${res.status})`);
+  return res.json();
+}
+
+export async function listJobs(signal?: AbortSignal): Promise<QueueJobSummary[]> {
+  const res = await fetch(`${getApiBase()}/youtube/jobs`, { signal });
+  if (!res.ok) throw new Error(`Error list jobs (${res.status})`);
+  return res.json();
+}
+
+export async function startJob(id: string): Promise<void> {
+  const res = await fetch(`${getApiBase()}/youtube/job/${id}/start`, { method: 'POST' });
+  if (!res.ok) throw new Error('No se pudo iniciar job');
+}
+
+export async function cancelJob(id: string): Promise<void> {
+  const res = await fetch(`${getApiBase()}/youtube/job/${id}/cancel`, { method: 'POST' });
+  if (!res.ok) throw new Error('No se pudo cancelar job');
+}
+
+export async function deleteJob(id: string): Promise<void> {
+  const res = await fetch(`${getApiBase()}/youtube/job/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('No se pudo eliminar job');
+}
+
+export async function deleteJobFile(id: string): Promise<void> {
+  const res = await fetch(`${getApiBase()}/youtube/job/${id}/file`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('No se pudo eliminar archivo');
+}
+
 export const getApiBase = () => import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 export async function requestYoutubeMp3(url: string, signal?: AbortSignal): Promise<YoutubeMp3Response> {

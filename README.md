@@ -128,6 +128,27 @@ Un job se elimina de memoria ~1h después de creado. Archivos en `media/` mayore
 
 La respuesta final incluye `title` y `durationSeconds` si están disponibles en la información del video.
 
+## Cola de trabajos (Queue)
+
+Además del inicio inmediato, existe un flujo de cola manual:
+
+Endpoints adicionales:
+
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| POST | `/youtube/mp3/enqueue` | Encola un job (estado `queued`) |
+| POST | `/youtube/job/:id/start` | Inicia un job en cola |
+| POST | `/youtube/job/:id/cancel` | Cancela (marca `canceled`) |
+| DELETE | `/youtube/job/:id` | Elimina el job de memoria (si terminal) |
+| DELETE | `/youtube/job/:id/file` | Elimina archivo generado del disco |
+| GET | `/youtube/jobs` | Lista todos los jobs (resumen) |
+
+Estados adicionales: `queued`, `canceled`.
+
+El frontend muestra un panel "Cola de trabajos" con acciones: Play (start), Cancel, Descargar, Eliminar archivo, Eliminar job.
+
+Nota: actualmente la cancelación marca el estado y evita futuras actualizaciones; en una mejora futura se podrían abortar streams/ffmpeg explícitamente.
+
 Notas:
 - Conversión usando `ytdl-core` + `fluent-ffmpeg`.
 - Se requiere ffmpeg (usamos binario de `@ffmpeg-installer/ffmpeg`).

@@ -1,13 +1,13 @@
 import * as React from 'react';
 import { useCallback, useRef, useState } from 'react';
-import { startYoutubeMp3Job, getJobProgress, getApiBase, YoutubeMp3Response, ProgressResponse } from '../lib/api.js';
+import { enqueueYoutubeMp3, getApiBase, YoutubeMp3Response } from '../lib/api.js';
+import JobQueue from './JobQueue.js';
 
 interface DownloadState {
-  status: 'idle' | 'loading' | 'polling' | 'success' | 'error';
+  status: 'idle' | 'loading' | 'queued' | 'error';
   message?: string;
-  result?: YoutubeMp3Response;
   jobId?: string;
-  percent?: number;
+  result?: YoutubeMp3Response; // legacy direct
 }
 
 const YT_REGEX = /^(https?:\/\/)?(www\.|m\.)?(youtube\.com\/watch\?v=|youtu\.be\/)[\w-]{11}(&.*)?$/i;
@@ -31,13 +31,12 @@ export const YouTubeToMp3 = () => {
     }
     const controller = new AbortController();
     abortRef.current = controller;
-    setState({ status: 'loading', message: 'Iniciando conversión…' });
+    setState({ status: 'loading', message: 'Encolando…' });
     try {
       const timeout = setTimeout(() => controller.abort(), 1000 * 60 * 2); // 2 min
-      const { jobId } = await startYoutubeMp3Job(url.trim(), controller.signal);
+      const { jobId } = await enqueueYoutubeMp3(url.trim(), controller.signal);
       clearTimeout(timeout);
-      setState({ status: 'polling', message: 'Preparando…', jobId, percent: 0 });
-      pollJob(jobId);
+      setState({ status: 'queued', message: 'Job en cola', jobId });
     } catch (err: any) {
       if (controller.signal.aborted) {
         setState({ status: 'idle', message: 'Cancelado.' });
@@ -48,37 +47,6 @@ export const YouTubeToMp3 = () => {
       abortRef.current = null;
     }
   };
-
-  const pollJob = useCallback((jobId: string) => {
-    let cancelled = false;
-    const tick = async () => {
-      if (cancelled) return;
-      try {
-        const progress: ProgressResponse = await getJobProgress(jobId);
-        if (progress.state === 'done' && progress.result) {
-          setState({ status: 'success', message: 'Conversión completa.', result: progress.result, jobId, percent: 100 });
-          return;
-        }
-        if (progress.state === 'error') {
-          setState({ status: 'error', message: progress.error || 'Error en conversión', jobId, percent: progress.percent });
-          return;
-        }
-        setState(s => ({
-          ...s,
-            status: 'polling',
-          jobId,
-          percent: progress.percent,
-          message: progress.message || s.message || 'Procesando…'
-        }));
-      } catch (e: any) {
-        setState({ status: 'error', message: e.message || 'Error consultando progreso', jobId });
-        return;
-      }
-      setTimeout(tick, 1000);
-    };
-    tick();
-    return () => { cancelled = true; };
-  }, []);
 
   const reset = () => {
     setUrl('');
@@ -115,7 +83,7 @@ export const YouTubeToMp3 = () => {
         >
           {state.status === 'loading' ? 'Convirtiendo...' : 'Convertir'}
         </button>
-        {['loading','polling'].includes(state.status) && (
+        {['loading'].includes(state.status) && (
           <button type="button" onClick={() => abortRef.current?.abort()} style={styles.secondary}>
             Cancelar
           </button>
@@ -129,36 +97,13 @@ export const YouTubeToMp3 = () => {
       {state.status === 'error' && (
         <div style={{ ...styles.alert, ...styles.error }}>{state.message}</div>
       )}
-      {state.status === 'success' && state.result && (
-        <div style={{ ...styles.alert, ...styles.success }}>
-          <span>{state.message}</span>
-          <br />
-          <strong>Archivo:</strong> {state.result.file}
-          { (state.result as any).title && (
-            <>
-              <br />
-              <strong>Título:</strong> {(state.result as any).title}
-            </>
-          )}
-          { (state.result as any).durationSeconds && (
-            <>
-              <br />
-              <strong>Duración:</strong> {Math.round((state.result as any).durationSeconds / 60)} min {(state.result as any).durationSeconds % 60}s
-            </>
-          )}
-          <br />
-            <button onClick={handleDownload} style={styles.button}>Descargar MP3</button>
-        </div>
+      {state.status === 'queued' && (
+        <div style={{ ...styles.alert, ...styles.info }}>Job en cola (usa el panel para iniciar).</div>
       )}
-      {['loading','polling'].includes(state.status) && (
-        <div style={{ ...styles.alert, ...styles.info }}>
-          {state.message}
-          <div style={{ marginTop: 8, background: '#0f172a', borderRadius: 6, overflow: 'hidden', height: 10 }}>
-            <div style={{ width: `${Math.min(100, Math.max(0, state.percent || 0)).toFixed(2)}%`, height: '100%', background: '#6366f1', transition: 'width 0.6s ease' }} />
-          </div>
-          <div style={{ marginTop: 4, fontSize: 12, opacity: 0.8 }}>{(state.percent || 0).toFixed(2)}%</div>
-        </div>
+      {state.status === 'loading' && (
+        <div style={{ ...styles.alert, ...styles.info }}>{state.message}</div>
       )}
+      <JobQueue />
     </div>
   );
 };

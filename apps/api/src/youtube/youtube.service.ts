@@ -23,7 +23,7 @@ export interface RawDownloadResult {
   format: string;
 }
 
-export type JobState = 'pending' | 'downloading' | 'converting' | 'done' | 'error';
+export type JobState = 'queued' | 'pending' | 'downloading' | 'converting' | 'done' | 'error' | 'canceled';
 export interface JobProgress {
   id: string;
   state: JobState;
@@ -34,6 +34,7 @@ export interface JobProgress {
   error?: string;
   createdAt: number;
   updatedAt: number;
+  url?: string;
 }
 
 @Injectable()
@@ -44,9 +45,16 @@ export class YoutubeService {
   private readonly jobTtlMs = 60 * 60 * 1000; // 1h
   private readonly fileTtlMs = 24 * 60 * 60 * 1000; // 24h
   private cleanupTimer: NodeJS.Timeout | null = null;
+  private readonly maxConcurrent = 3;
+  private currentRunning = 0;
+  private controllers = new Map<string, { audioStream?: any; ffmpeg?: any; writeStream?: any }>();
 
   getJob(id: string): JobProgress | undefined {
     return this.jobs.get(id);
+  }
+
+  listJobs(): JobProgress[] {
+    return Array.from(this.jobs.values()).sort((a, b) => b.createdAt - a.createdAt);
   }
 
   private updateJob(id: string, patch: Partial<JobProgress>) {
@@ -63,11 +71,57 @@ export class YoutubeService {
     }
     const id = randomUUID();
     const now = Date.now();
-    this.jobs.set(id, { id, state: 'pending', percent: 0, createdAt: now, updatedAt: now });
-    this.processMp3Job(id, url).catch(err => {
-      this.updateJob(id, { state: 'error', error: err instanceof Error ? err.message : String(err), percent: 100 });
-    });
+    this.jobs.set(id, { id, state: 'pending', percent: 0, createdAt: now, updatedAt: now, url });
+    this.tryStartJob(id);
     return id;
+  }
+
+  enqueueMp3Job(url: string): string {
+    if (!this.cleanupTimer) {
+      this.cleanupTimer = setInterval(() => this.cleanup(), 15 * 60 * 1000).unref();
+    }
+    const id = randomUUID();
+    const now = Date.now();
+    this.jobs.set(id, { id, state: 'queued', percent: 0, createdAt: now, updatedAt: now, url, message: 'En cola' });
+    return id;
+  }
+
+  startQueuedJob(id: string): void {
+    const job = this.jobs.get(id);
+    if (!job) throw new BadRequestException('Job no existe');
+    if (job.state !== 'queued') throw new BadRequestException('Job no está en cola');
+    this.updateJob(id, { state: 'pending', message: 'Inicializando...' });
+    this.tryStartJob(id);
+  }
+
+  cancelJob(id: string): void {
+    const job = this.jobs.get(id);
+    if (!job) throw new BadRequestException('Job no existe');
+    if (['done', 'error', 'canceled'].includes(job.state)) return;
+    const ctrl = this.controllers.get(id);
+    try { ctrl?.audioStream?.destroy(); } catch {}
+    try { ctrl?.ffmpeg?.kill('SIGKILL'); } catch {}
+    try { ctrl?.writeStream?.destroy(); } catch {}
+    this.controllers.delete(id);
+    this.updateJob(id, { state: 'canceled', message: 'Cancelado', percent: 100 });
+    if (this.currentRunning > 0) this.currentRunning = Math.max(0, this.currentRunning - 1);
+    this.tryDequeue();
+  }
+
+  deleteJob(id: string): boolean {
+    return this.jobs.delete(id);
+  }
+
+  deleteJobFile(id: string): boolean {
+    const job = this.jobs.get(id);
+    if (!job || !job.result) return false;
+    try {
+      if (existsSync(job.result.path)) require('node:fs').unlinkSync(job.result.path);
+      this.updateJob(id, { message: 'Archivo eliminado', result: undefined, state: job.state === 'done' ? 'done' : job.state });
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private async processMp3Job(id: string, url: string) {
@@ -85,13 +139,19 @@ export class YoutubeService {
   const fileName = `${titleSlug || 'audio'}-${id}.mp3`;
     const outputPath = join(this.mediaDir, fileName);
 
-    const audioStream = ytdl(url, { quality: 'highestaudio', filter: 'audioonly' });
+  const audioStream = ytdl(url, { quality: 'highestaudio', filter: 'audioonly' });
     let finished = false;
     const writeStream = createWriteStream(outputPath);
+  this.controllers.set(id, { audioStream, writeStream });
 
     const totalUnknownFallbackStart = Date.now();
 
     audioStream.on('progress', (_chunk: number, downloaded: number, total: number) => {
+      const job = this.getJob(id);
+      if (!job || job.state === 'canceled') {
+        try { audioStream.destroy(); } catch {}
+        return;
+      }
       let percent = total ? (downloaded / total) * 50 : Math.min(50, ((Date.now() - totalUnknownFallbackStart) / 30000) * 50);
       if (percent > 50) percent = 50; // primera mitad
       this.updateJob(id, { state: 'downloading', percent, stagePercent: percent, message: 'Descargando audio...' });
@@ -105,11 +165,13 @@ export class YoutubeService {
     audioStream.on('error', e => bail(e, 'Error stream YouTube'));
     writeStream.on('error', e => bail(e, 'Error escritura archivo'));
 
-    ffmpeg(audioStream as any)
+    const ff = ffmpeg(audioStream as any)
       .audioBitrate(128)
       .toFormat('mp3')
       .on('start', () => this.updateJob(id, { state: 'converting', message: 'Convirtiendo...', percent: 55 }))
       .on('progress', (p: any) => {
+        const job = this.getJob(id);
+        if (!job || job.state === 'canceled') return;
         const convPercent = p?.percent ? Math.min(100, Math.max(0, p.percent)) : 0;
         // Mapear progreso conversión a segmento 50-99
         const global = 50 + (convPercent / 100) * 49; // deja 1% final para flush
@@ -119,6 +181,8 @@ export class YoutubeService {
       .on('end', () => {
         if (finished) return;
         finished = true;
+        const job = this.getJob(id);
+        if (job && job.state === 'canceled') return; // no actualizamos si se canceló
         try {
           const sizeBytes = writeStream.bytesWritten;
           const durationSeconds = Number(info.videoDetails.lengthSeconds || '0') || undefined;
@@ -128,7 +192,41 @@ export class YoutubeService {
           bail(e, 'Error finalizando');
         }
       })
+      .on('close', () => {
+        this.controllers.delete(id);
+        if (this.currentRunning > 0) this.currentRunning = Math.max(0, this.currentRunning - 1);
+        this.tryDequeue();
+      })
       .save(outputPath);
+    this.controllers.set(id, { audioStream, writeStream, ffmpeg: ff });
+  }
+
+  private canStartMore(): boolean {
+    return this.currentRunning < this.maxConcurrent;
+  }
+
+  private tryStartJob(id: string) {
+    const job = this.jobs.get(id);
+    if (!job) return;
+    if (!this.canStartMore()) {
+      if (job.state === 'pending') this.updateJob(id, { state: 'queued', message: 'Esperando turno' });
+      return;
+    }
+    if (['pending', 'queued'].includes(job.state)) {
+      this.updateJob(id, { state: 'downloading', message: 'Obteniendo info...' });
+      this.currentRunning += 1;
+      this.processMp3Job(id, job.url!).catch(err => {
+        this.updateJob(id, { state: 'error', error: err instanceof Error ? err.message : String(err), percent: 100 });
+        if (this.currentRunning > 0) this.currentRunning = Math.max(0, this.currentRunning - 1);
+        this.tryDequeue();
+      });
+    }
+  }
+
+  private tryDequeue() {
+    if (!this.canStartMore()) return;
+    const next = Array.from(this.jobs.values()).find(j => j.state === 'queued');
+    if (next) this.tryStartJob(next.id);
   }
 
   private cleanup() {
