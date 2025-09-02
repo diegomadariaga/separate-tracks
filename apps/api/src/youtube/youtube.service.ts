@@ -63,14 +63,18 @@ export class YoutubeService implements OnModuleInit {
   private lastBroadcast: Record<string, number> = {};
 
   registerSseClient(res: import('http').ServerResponse) {
+    this.logger.debug('Registrando nuevo cliente SSE');
     this.sseClients.add(res);
     res.on('close', () => this.sseClients.delete(res));
     const snapshot = this.listJobs();
     res.write('event: init\n');
     res.write(`data: ${JSON.stringify(snapshot)}\n\n`);
+    this.logger.debug(`Enviado snapshot inicial (${snapshot.length} jobs) a cliente SSE`);
   }
 
   private broadcast(job: JobProgress) {
+    // Logging liviano (throttle ya limita frecuencia)
+    this.logger.verbose(`Broadcast job=${job.id} state=${job.state} percent=${job.percent.toFixed(1)}`);
     if (!this.sseClients.size) return;
     const now = Date.now();
     if (this.lastBroadcast[job.id] && now - this.lastBroadcast[job.id] < 150) return; // throttle
@@ -99,6 +103,9 @@ export class YoutubeService implements OnModuleInit {
     if (!current) return;
     const updated: JobProgress = { ...current, ...patch, updatedAt: Date.now() };
     this.jobs.set(id, updated);
+    if (patch.state || patch.percent !== undefined || patch.message || patch.error) {
+      this.logger.debug(`Persist job=${id} state=${updated.state} percent=${updated.percent.toFixed(1)} msg=${updated.message || ''} err=${updated.error || ''}`);
+    }
     const entityPatch: Partial<YoutubeJobEntity> = {
       state: updated.state as any,
       progress: Math.round(updated.percent),
@@ -119,6 +126,7 @@ export class YoutubeService implements OnModuleInit {
   }
 
   async onModuleInit() {
+    this.logger.log('YoutubeService inicializando: restaurando jobs desde DB');
     const rows = await this.repo.find();
     for (const r of rows) {
       const job: JobProgress = {
@@ -139,15 +147,18 @@ export class YoutubeService implements OnModuleInit {
         result: r.outputFile ? { fileName: r.outputFile, path: join(this.mediaDir, r.outputFile), sizeBytes: 0, title: r.title, durationSeconds: r.durationSeconds } : undefined
       };
       if (['downloading', 'converting', 'pending'].includes(r.state)) {
+        this.logger.warn(`Job ${r.id} estaba en estado ${r.state} al iniciar. Re-encolando.`);
         job.state = 'queued';
         job.message = 'Reencolado tras reinicio';
         await this.repo.update(r.id, { state: 'queued', message: job.message });
       }
       this.jobs.set(r.id, job);
     }
+    this.logger.log(`Restauración completa (${rows.length} jobs)`);
   }
 
   startMp3Job(url: string): string {
+    this.logger.log(`startMp3Job solicitado url=${url}`);
     if (!this.cleanupTimer) {
       this.cleanupTimer = setInterval(() => this.cleanup(), 15 * 60 * 1000).unref();
     }
@@ -155,10 +166,12 @@ export class YoutubeService implements OnModuleInit {
     const now = Date.now();
     this.jobs.set(id, { id, state: 'queued', percent: 0, createdAt: now, updatedAt: now, url, message: 'En cola (manual)' });
     this.repo.insert({ id, url, state: 'queued', createdAt: now, updatedAt: now, title: undefined, durationSeconds: undefined, outputFile: undefined, errorMessage: null, progress: 0, downloadProgress: 0, convertProgress: 0, message: 'En cola (manual)', stagePercent: 0 });
+    this.logger.debug(`Job creado manual id=${id}`);
     return id;
   }
 
   enqueueMp3Job(url: string): string {
+    this.logger.log(`enqueueMp3Job solicitado url=${url}`);
     if (!this.cleanupTimer) {
       this.cleanupTimer = setInterval(() => this.cleanup(), 15 * 60 * 1000).unref();
     }
@@ -175,9 +188,11 @@ export class YoutubeService implements OnModuleInit {
         const author = info.videoDetails.author?.name || (info.videoDetails.ownerChannelName) || undefined;
         const thumb = (info.videoDetails.thumbnails || []).sort((a,b)=> (b.width*b.height)-(a.width*a.height))[0]?.url;
         this.persistAndCache(id, { title, durationSeconds, author, thumbnailUrl: thumb, message: 'En cola' });
+        this.logger.debug(`Metadata prefetch id=${id} title="${title}" duration=${durationSeconds}`);
       } catch (e) {
         // ignoramos errores de metadata aquí para no romper la cola; se reintentará al iniciar
         this.persistAndCache(id, { message: 'En cola' });
+        this.logger.verbose(`Prefetch metadata fallo id=${id}: ${(e as Error).message}`);
       }
     })();
     return id;
@@ -187,6 +202,7 @@ export class YoutubeService implements OnModuleInit {
     const job = this.jobs.get(id);
     if (!job) throw new BadRequestException('Job no existe');
     if (job.state !== 'queued') throw new BadRequestException('Job no está en cola');
+    this.logger.log(`Iniciando job en cola id=${id}`);
     this.persistAndCache(id, { state: 'pending', message: 'Inicializando...' });
     this.tryStartJob(id);
   }
@@ -195,6 +211,7 @@ export class YoutubeService implements OnModuleInit {
     const job = this.jobs.get(id);
     if (!job) throw new BadRequestException('Job no existe');
     if (['done', 'error', 'canceled'].includes(job.state)) return;
+    this.logger.warn(`Cancelando job id=${id} state=${job.state}`);
     const ctrl = this.controllers.get(id);
     try { ctrl?.audioStream?.destroy(); } catch {}
     try { ctrl?.ffmpeg?.kill('SIGKILL'); } catch {}
@@ -217,6 +234,7 @@ export class YoutubeService implements OnModuleInit {
   }
 
   deleteJob(id: string): boolean {
+    this.logger.debug(`deleteJob id=${id}`);
     return this.jobs.delete(id);
   }
 
@@ -226,6 +244,7 @@ export class YoutubeService implements OnModuleInit {
     try {
       if (existsSync(job.result.path)) require('node:fs').unlinkSync(job.result.path);
   this.persistAndCache(id, { message: 'Archivo eliminado', result: undefined, state: job.state === 'done' ? 'done' : job.state });
+      this.logger.debug(`Archivo de job eliminado id=${id}`);
       return true;
     } catch {
       return false;
@@ -235,6 +254,7 @@ export class YoutubeService implements OnModuleInit {
   deleteJobAndFile(id: string): boolean {
     const job = this.jobs.get(id);
     if (!job) return false;
+    this.logger.debug(`deleteJobAndFile id=${id}`);
     if (job.result && existsSync(job.result.path)) {
       try { require('node:fs').unlinkSync(job.result.path); } catch { /* ignore */ }
     }
@@ -247,6 +267,7 @@ export class YoutubeService implements OnModuleInit {
   forceDelete(id: string): boolean {
     const job = this.jobs.get(id);
     if (!job) return false;
+    this.logger.warn(`forceDelete id=${id} state=${job.state}`);
     // Cancelar si está en progreso
     if (!['done','error','canceled'].includes(job.state)) {
       try { this.cancelJob(id); } catch { /* ignore */ }
@@ -255,14 +276,18 @@ export class YoutubeService implements OnModuleInit {
   }
 
   private async processMp3Job(id: string, url: string) {
+  this.logger.log(`processMp3Job start id=${id} url=${url}`);
   this.persistAndCache(id, { state: 'downloading', message: 'Obteniendo info...' });
     let info;
     try {
       info = await ytdl.getInfo(url);
+      this.logger.debug(`Info obtenida id=${id} title="${info.videoDetails?.title}"`);
     } catch (e: any) {
       if (e && /extract functions/i.test(e.message)) {
+        this.logger.error(`Firma no extraída id=${id}`);
         throw new BadRequestException('YouTube cambió su página, intenta más tarde (firma no extraída)');
       }
+      this.logger.error(`Error getInfo id=${id}: ${e.message}`);
       throw e;
     }
     // Persist early metadata (title & duration) so UI can display it while downloading
@@ -283,6 +308,7 @@ export class YoutubeService implements OnModuleInit {
     const bail = (err: Error, context: string) => {
       if (finished) return;
       finished = true;
+      this.logger.error(`Job ${id} fallo contexto=${context} error=${err.message}`);
       this.persistAndCache(id, { state: 'error', error: `${context}: ${err.message}`, message: 'Error', percent: 100 });
       try { this.controllers.get(id)?.audioStream?.destroy(); } catch {}
       try { this.controllers.get(id)?.ffmpeg?.kill('SIGKILL'); } catch {}
@@ -313,10 +339,12 @@ export class YoutubeService implements OnModuleInit {
         if (rate > 0) downloadEtaSeconds = remaining / rate;
       }
       this.persistAndCache(id, { state: 'downloading', percent: downloadPercent * 0.5, stagePercent: downloadPercent, downloadPercent, message: 'Descargando audio...', downloadEtaSeconds });
+      if (downloadPercent % 25 < 1) this.logger.verbose(`Job ${id} descarga ${downloadPercent.toFixed(1)}%`);
     });
     audioStream.on('error', e => bail(e, 'Error stream YouTube'));
     tempWrite.on('error', e => bail(e, 'Error escritura archivo'));
     tempWrite.on('finish', () => {
+      this.logger.debug(`Descarga completa id=${id}, iniciando conversión`);
       const job = this.getJob(id);
       if (!job || job.state === 'canceled') return;
       // Aseguramos marcar descarga completa al iniciar conversión
@@ -360,11 +388,13 @@ export class YoutubeService implements OnModuleInit {
               if (rate > 0) convertEtaSeconds = remainingSecs / rate;
             }
             this.persistAndCache(id, { state: 'converting', percent: safeGlobal, stagePercent: convPercent, convertPercent: convPercent, message: 'Convirtiendo...', convertEtaSeconds });
+            if (convPercent % 20 < 1) this.logger.verbose(`Job ${id} conversión ${convPercent.toFixed(1)}%`);
         })
         .on('error', (err: Error) => bail(err, 'Error en conversión'))
         .on('end', () => {
           if (finished) return;
           finished = true;
+          this.logger.debug(`Conversión terminada id=${id}`);
           const job2 = this.getJob(id);
           if (job2 && job2.state === 'canceled') return;
           try {
@@ -374,6 +404,7 @@ export class YoutubeService implements OnModuleInit {
             const author = info.videoDetails.author?.name || (info.videoDetails.ownerChannelName) || undefined;
             const thumb = (info.videoDetails.thumbnails || []).sort((a,b)=> (b.width*b.height)-(a.width*a.height))[0]?.url;
             this.persistAndCache(id, { state: 'done', percent: 100, result, message: 'Completado', downloadPercent: 100, convertPercent: 100, title: info.videoDetails.title, durationSeconds, author, thumbnailUrl: thumb });
+            this.logger.log(`Job ${id} COMPLETADO file=${fileName} sizeBytes=${sizeBytes}`);
           } catch (e: any) {
             bail(e, 'Error finalizando');
           } finally {
@@ -382,6 +413,7 @@ export class YoutubeService implements OnModuleInit {
           }
         })
         .on('close', () => {
+          this.logger.debug(`FFmpeg close id=${id}`);
           this.controllers.delete(id);
           if (this.currentRunning > 0) this.currentRunning = Math.max(0, this.currentRunning - 1);
         })
@@ -402,12 +434,15 @@ export class YoutubeService implements OnModuleInit {
     if (!job) return;
     if (!this.canStartMore()) {
   if (job.state === 'pending') this.persistAndCache(id, { state: 'queued', message: 'Esperando turno' });
+      this.logger.debug(`No hay capacidad, re-encolando id=${id}`);
       return;
     }
     if (['pending', 'queued'].includes(job.state)) {
   this.persistAndCache(id, { state: 'downloading', message: 'Obteniendo info...' });
+      this.logger.log(`Iniciando proceso job id=${id}`);
       this.currentRunning += 1;
       this.processMp3Job(id, job.url!).catch(err => {
+        this.logger.error(`Fallo job id=${id}: ${(err instanceof Error) ? err.message : err}`);
         this.persistAndCache(id, { state: 'error', error: err instanceof Error ? err.message : String(err), percent: 100 });
         if (this.currentRunning > 0) this.currentRunning = Math.max(0, this.currentRunning - 1);
       });
@@ -416,10 +451,12 @@ export class YoutubeService implements OnModuleInit {
   // En modo manual no se auto-desencola; el usuario debe iniciar cada job.
 
   private cleanup() {
+    this.logger.debug('Ejecutando limpieza periódica');
     const now = Date.now();
     // Limpiar jobs viejos
     for (const [id, job] of this.jobs.entries()) {
       if (now - job.createdAt > this.jobTtlMs) {
+        this.logger.verbose(`Eliminando job viejo id=${id}`);
         this.jobs.delete(id);
       }
     }
@@ -446,6 +483,7 @@ export class YoutubeService implements OnModuleInit {
   private ensureMediaDir() {
     if (!existsSync(this.mediaDir)) {
       mkdirSync(this.mediaDir, { recursive: true });
+      this.logger.debug(`Directorio media creado path=${this.mediaDir}`);
     }
   }
 
