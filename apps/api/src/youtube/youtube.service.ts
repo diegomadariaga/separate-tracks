@@ -74,7 +74,7 @@ export class YoutubeService implements OnModuleInit {
 
   private broadcast(job: JobProgress) {
     // Logging liviano (throttle ya limita frecuencia)
-    this.logger.verbose(`Broadcast job=${job.id} state=${job.state} percent=${job.percent.toFixed(1)}`);
+    this.logger.verbose(`Broadcast job =${job.id} state =${job.state} percent =${job.percent.toFixed(1)}`);
     if (!this.sseClients.size) return;
     const now = Date.now();
     if (this.lastBroadcast[job.id] && now - this.lastBroadcast[job.id] < 150) return; // throttle
