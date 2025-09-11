@@ -72,7 +72,8 @@ export default [
       },
     },
     rules: {
-      // Place API-specific rule overrides here if needed
+      '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/no-var-requires': 'off',
     },
   },
 ]
