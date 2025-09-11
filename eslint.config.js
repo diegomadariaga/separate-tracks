@@ -1,13 +1,14 @@
 // Flat ESLint config for the monorepo (ESLint v9)
+// CommonJS export to avoid Node ESM warnings in CLIs
 // Covers: apps/api (NestJS, Node) and apps/web (React, Vite)
 
-import tsParser from '@typescript-eslint/parser'
-import tsPlugin from '@typescript-eslint/eslint-plugin'
-import reactPlugin from 'eslint-plugin-react'
-import reactHooks from 'eslint-plugin-react-hooks'
-import jsxA11y from 'eslint-plugin-jsx-a11y'
+const tsParser = require('@typescript-eslint/parser');
+const tsPlugin = require('@typescript-eslint/eslint-plugin');
+const reactPlugin = require('eslint-plugin-react');
+const reactHooks = require('eslint-plugin-react-hooks');
+const jsxA11y = require('eslint-plugin-jsx-a11y');
 
-export default [
+module.exports = [
   {
     ignores: [
       '**/dist/**',
