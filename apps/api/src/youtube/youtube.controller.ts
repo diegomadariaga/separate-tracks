@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Get, Param, NotFoundException, Res, Delete } from '@nestjs/common';
+import { Controller, Post, Body, Get, Param, NotFoundException, Res, Delete, BadRequestException } from '@nestjs/common';
 import { YoutubeService } from './youtube.service.js';
 import { DownloadYoutubeDto } from './youtube.dto.js';
 import type { Response } from 'express';
@@ -156,6 +156,47 @@ export class YoutubeController {
     res.setHeader('Content-Disposition', `attachment; filename="${file}"`);
     const stream = createReadStream(filePath);
     stream.pipe(res);
+  }
+
+  // Separación de pistas
+  @Post('job/:id/separate')
+  async separate(@Param('id') id: string) {
+    const job = this.youtube.getJob(id);
+    if (!job) throw new NotFoundException('Job no encontrado');
+    if (job.state !== 'done' || !job.result?.fileName) throw new BadRequestException('El archivo aún no está listo');
+    await this.youtube.separateTracks(id);
+    return { ok: true };
+  }
+
+  @Get('job/:id/stems')
+  async listStems(@Param('id') id: string) {
+    const job = this.youtube.getJob(id);
+    if (!job) throw new NotFoundException('Job no encontrado');
+    return {
+      sepState: job.sepState || 'idle',
+      sepPercent: job.sepPercent || 0,
+      sepMessage: job.sepMessage,
+      sepError: job.sepError,
+      stems: (job.stems || []).map(s => ({
+        name: s.name,
+        file: s.fileName,
+        sizeBytes: s.sizeBytes,
+        downloadUrl: `/youtube/stems/${encodeURIComponent(job.result!.fileName)}/${encodeURIComponent(s.fileName)}`
+      }))
+    };
+  }
+
+  @Get('stems/:base/:stem')
+  async downloadStem(@Param('base') base: string, @Param('stem') stem: string, @Res() res: Response) {
+    const mediaDir = join(process.cwd(), 'media');
+    const dir = join(mediaDir, `${base}-stems`);
+    const filePath = join(dir, stem);
+    if (!existsSync(filePath)) throw new NotFoundException('Stem no encontrado');
+    const stat = statSync(filePath);
+    res.setHeader('Content-Type', 'audio/mpeg');
+    res.setHeader('Content-Length', stat.size.toString());
+    res.setHeader('Content-Disposition', `attachment; filename="${stem}"`);
+    createReadStream(filePath).pipe(res);
   }
 
   @Get('stream')

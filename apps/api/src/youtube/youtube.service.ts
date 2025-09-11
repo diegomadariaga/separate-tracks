@@ -46,6 +46,13 @@ export interface JobProgress {
   author?: string;
   downloadEtaSeconds?: number;
   convertEtaSeconds?: number;
+  // separación de pistas (tras estar done)
+  sepState?: 'idle' | 'queued' | 'processing' | 'done' | 'error';
+  sepPercent?: number;
+  sepMessage?: string;
+  sepError?: string;
+  sepEtaSeconds?: number;
+  stems?: Array<{ name: string; fileName: string; sizeBytes: number }>;
 }
 
 @Injectable()
@@ -258,6 +265,19 @@ export class YoutubeService implements OnModuleInit {
     if (job.result && existsSync(job.result.path)) {
       try { require('node:fs').unlinkSync(job.result.path); } catch { /* ignore */ }
     }
+    // eliminar stems si existen
+    try {
+      if (job.result?.fileName) {
+        const stemDir = join(this.mediaDir, `${job.result.fileName}-stems`);
+        if (existsSync(stemDir)) {
+          const fs = require('node:fs');
+          for (const f of fs.readdirSync(stemDir)) {
+            try { fs.unlinkSync(join(stemDir, f)); } catch {}
+          }
+          try { fs.rmdirSync(stemDir); } catch {}
+        }
+      }
+    } catch {}
     this.jobs.delete(id);
     // También eliminar en DB (registro)
     this.repo.delete(id).catch(() => {});
@@ -475,6 +495,21 @@ export class YoutubeService implements OnModuleInit {
           }
         } catch { /* noop */ }
       }
+      // limpiar subcarpetas de stems antiguas
+      for (const name of entries) {
+        const full = join(dir, name);
+        try {
+          const st = require('node:fs').statSync(full);
+          if (st.isDirectory() && name.endsWith('-stems') && now - st.mtimeMs > this.fileTtlMs) {
+            const fs = require('node:fs');
+            for (const f of fs.readdirSync(full)) {
+              try { fs.unlinkSync(join(full, f)); } catch {}
+            }
+            try { fs.rmdirSync(full); } catch {}
+            this.logger.verbose(`Limpieza: carpeta de stems eliminada ${name}`);
+          }
+        } catch { /* noop */ }
+      }
     } catch (e) {
       this.logger.debug('Error en limpieza: ' + (e as Error).message);
     }
@@ -485,6 +520,73 @@ export class YoutubeService implements OnModuleInit {
       mkdirSync(this.mediaDir, { recursive: true });
       this.logger.debug(`Directorio media creado path=${this.mediaDir}`);
     }
+  }
+
+  // Separación de pistas (stems simples con ffmpeg)
+  async separateTracks(jobId: string) {
+    const job = this.jobs.get(jobId);
+    if (!job) throw new BadRequestException('Job no existe');
+    if (!job.result?.path || !existsSync(job.result.path)) throw new BadRequestException('Archivo no disponible');
+    if (job.sepState && ['queued','processing'].includes(job.sepState)) throw new BadRequestException('Separación en curso');
+    const stemDir = join(this.mediaDir, `${job.result.fileName}-stems`);
+    if (!existsSync(stemDir)) mkdirSync(stemDir, { recursive: true });
+    this.persistAndCache(jobId, { sepState: 'queued', sepPercent: 0, sepMessage: 'En cola para separar' });
+    setTimeout(() => this.processSeparation(jobId, job.result!.path, stemDir).catch(e => {
+      this.logger.error(`Separation failed id=${jobId}: ${e instanceof Error ? e.message : e}`);
+      this.persistAndCache(jobId, { sepState: 'error', sepError: e instanceof Error ? e.message : String(e), sepMessage: 'Error separando', sepPercent: 100 });
+    }), 10);
+    return { ok: true };
+  }
+
+  private processSeparation(jobId: string, inputPath: string, stemDir: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      // Estrategia: 2 stems simples: center (promedio L+R) y side (diferencia L-R)
+      // Ejecutamos 2 procesos secuenciales para poder informar progreso 0-100
+      const stems = [
+        { key: 'center', filter: 'pan=stereo|c0=(FL+FR)/2|c1=(FL+FR)/2' },
+        { key: 'side', filter: 'pan=stereo|c0=(FL-FR)/2|c1=(FR-FL)/2' }
+      ] as const;
+      const results: Array<{ name: string; fileName: string; sizeBytes: number }> = [];
+      const runStem = (index: number) => {
+        if (index >= stems.length) {
+          this.persistAndCache(jobId, { sepState: 'done', sepPercent: 100, sepMessage: 'Separación completada', stems: results });
+          return resolve();
+        }
+        const s = stems[index];
+        const outFile = `${s.key}.mp3`;
+        const outPath = join(stemDir, outFile);
+        this.persistAndCache(jobId, { sepState: 'processing', sepMessage: `Procesando ${s.key}…`, sepPercent: (index / stems.length) * 100 });
+        const proc = ffmpeg(inputPath)
+          .audioFilters(s.filter)
+          .audioBitrate(128)
+          .toFormat('mp3')
+          .on('progress', (p: any) => {
+            let per = 0;
+            if (p?.percent && Number.isFinite(p.percent)) per = p.percent as number;
+            const global = (index / stems.length) * 100 + (per / stems.length);
+            this.persistAndCache(jobId, { sepState: 'processing', sepPercent: Math.min(99, global) });
+          })
+          .on('error', (err: Error) => reject(err))
+          .on('end', () => {
+            try {
+              const sizeBytes = require('node:fs').statSync(outPath).size;
+              results.push({ name: s.key, fileName: `${jobId}-${s.key}.mp3`, sizeBytes });
+              // Renombrar a incluir jobId para servir estable
+              const finalPath = join(stemDir, `${jobId}-${s.key}.mp3`);
+              try { require('node:fs').renameSync(outPath, finalPath); } catch {}
+              this.persistAndCache(jobId, { stems: results.slice() });
+              runStem(index + 1);
+            } catch (e) {
+              reject(e as Error);
+            }
+          })
+          .save(outPath);
+        // guardar handler si queremos cancelar en el futuro
+        const ctrl = this.controllers.get(jobId) || {};
+        this.controllers.set(jobId, { ...ctrl, ffmpeg: proc });
+      };
+      runStem(0);
+    });
   }
 
   async downloadAndConvertToMp3(url: string): Promise<ConversionResult> {

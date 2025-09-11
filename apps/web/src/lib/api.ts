@@ -39,6 +39,14 @@ export interface QueueJobSummary {
   convertEtaSeconds?: number;
 }
 
+export interface StemsResponse {
+  sepState: 'idle' | 'queued' | 'processing' | 'done' | 'error';
+  sepPercent: number;
+  sepMessage?: string;
+  sepError?: string;
+  stems: Array<{ name: string; file: string; sizeBytes: number; downloadUrl: string }>;
+}
+
 export async function enqueueYoutubeMp3(url: string, signal?: AbortSignal): Promise<{ jobId: string }> {
   const res = await fetch(`${getApiBase()}/youtube/mp3/enqueue`, {
     method: 'POST',
@@ -84,6 +92,17 @@ export async function deleteJobAll(id: string): Promise<void> {
 export async function forceDeleteJob(id: string): Promise<void> {
   const res = await fetch(`${getApiBase()}/youtube/job/${id}/force`, { method: 'DELETE' });
   if (!res.ok) throw new Error('No se pudo eliminar forzado');
+}
+
+export async function separateJob(id: string): Promise<void> {
+  const res = await fetch(`${getApiBase()}/youtube/job/${id}/separate`, { method: 'POST' });
+  if (!res.ok) throw new Error('No se pudo iniciar separación');
+}
+
+export async function getStems(id: string, signal?: AbortSignal): Promise<StemsResponse> {
+  const res = await fetch(`${getApiBase()}/youtube/job/${id}/stems`, { signal });
+  if (!res.ok) throw new Error('No se pudo obtener stems');
+  return res.json();
 }
 
 export const getApiBase = () => import.meta.env.VITE_API_URL || 'http://localhost:3000';

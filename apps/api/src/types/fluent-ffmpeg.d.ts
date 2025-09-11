@@ -6,6 +6,7 @@ declare module 'fluent-ffmpeg' {
 
   interface FfmpegCommand extends EventEmitter {
     audioBitrate(bitrate: number | string): FfmpegCommand;
+    audioFilters(filters: string | string[] | Array<string | { filter: string; options?: string | string[] | Record<string, any> }>): FfmpegCommand;
     toFormat(format: string): FfmpegCommand;
     save(output: string): FfmpegCommand;
     on(event: 'error', handler: (err: Error) => void): FfmpegCommand;

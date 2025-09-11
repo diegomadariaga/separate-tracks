@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { listJobs, startJob, cancelJob, deleteJobAll, forceDeleteJob, getApiBase, QueueJobSummary } from '../lib/api.js';
+import { listJobs, startJob, cancelJob, deleteJobAll, forceDeleteJob, getApiBase, QueueJobSummary, separateJob, getStems, StemsResponse } from '../lib/api.js';
 import ConfirmModal from './ConfirmModal.js';
 import { Button } from './ui/Button.js';
 import { usePolling } from '../hooks/usePolling.js';
@@ -13,6 +13,7 @@ export const JobQueue: React.FC<JobQueueProps> = ({ refreshMs = 1200 }) => {
   const [loading, setLoading] = React.useState(false);
   const [confirmState, setConfirmState] = React.useState<{ open: boolean; jobId?: string; terminal?: boolean }>({ open: false });
   const [deleting, setDeleting] = React.useState(false);
+  const [stemsState, setStemsState] = React.useState<Record<string, StemsResponse | undefined>>({});
 
   const fetchJobs = React.useCallback(async () => {
     setLoading(true);
@@ -20,7 +21,6 @@ export const JobQueue: React.FC<JobQueueProps> = ({ refreshMs = 1200 }) => {
       const data = await listJobs();
       setJobs(data);
     } catch (e) {
-      // eslint-disable-next-line no-console
       console.error(e);
     } finally {
       setLoading(false);
@@ -67,6 +67,34 @@ export const JobQueue: React.FC<JobQueueProps> = ({ refreshMs = 1200 }) => {
     window.open(url, '_blank');
   }, []);
 
+  // Poll stems progress for jobs where separation has started
+  usePolling(async () => {
+    const ids = Object.keys(stemsState).filter(id => {
+      const s = stemsState[id];
+      return s && (s.sepState === 'queued' || s.sepState === 'processing');
+    });
+    if (ids.length === 0) return;
+    await Promise.all(ids.map(async id => {
+      try {
+        const data = await getStems(id);
+        setStemsState(prev => ({ ...prev, [id]: data }));
+      } catch {}
+    }));
+  }, { interval: refreshMs, immediate: true, enabled: true });
+
+  const handleSeparate = React.useCallback(async (id: string) => {
+    try {
+      setStemsState(prev => ({ ...prev, [id]: { sepState: 'queued', sepPercent: 0, stems: [] } as unknown as StemsResponse }));
+      await separateJob(id);
+      const data = await getStems(id);
+      setStemsState(prev => ({ ...prev, [id]: data }));
+    } catch (e) {
+      console.error(e);
+      const errState: StemsResponse = { sepState: 'error', sepPercent: 100, sepError: (e as Error).message, sepMessage: 'Error', stems: [] } as StemsResponse;
+      setStemsState(prev => ({ ...prev, [id]: errState }));
+    }
+  }, []);
+
   return (
     <>
     <div style={styles.wrapper}>
@@ -75,9 +103,10 @@ export const JobQueue: React.FC<JobQueueProps> = ({ refreshMs = 1200 }) => {
       {!loading && jobs.length === 0 && <div style={styles.info}>Sin trabajos en cola.</div>}
       <ul style={styles.list}>
         {jobs.map(job => {
-          const percent = job.percent.toFixed(2);
           const isTerminal = TERMINAL_STATES.includes(job.state);
           const duration = job.durationSeconds ? formatDuration(job.durationSeconds) : undefined;
+          const stems = stemsState[job.id];
+          const sepInProgress = !!stems && (stems.sepState === 'queued' || stems.sepState === 'processing');
           return (
             <li key={job.id} style={styles.item}>
               <div style={styles.topRow}>
@@ -129,6 +158,16 @@ export const JobQueue: React.FC<JobQueueProps> = ({ refreshMs = 1200 }) => {
                       onClick={() => openDownload(job.file!)}
                     >⬇</Button>
                   )}
+                  {job.hasFile && (
+                    <Button
+                      aria-label="Separar pistas"
+                      title="Separar pistas"
+                      size="sm"
+                      variant="primary"
+                      disabled={sepInProgress}
+                      onClick={() => handleSeparate(job.id)}
+                    >{sepInProgress ? 'Separando…' : 'Separar'}</Button>
+                  )}
                   <Button
                     aria-label={isTerminal ? 'Eliminar archivo y registro' : 'Cancelar y eliminar job'}
                     title={isTerminal ? 'Eliminar todo' : 'Cancelar y eliminar'}
@@ -153,7 +192,28 @@ export const JobQueue: React.FC<JobQueueProps> = ({ refreshMs = 1200 }) => {
                 <div style={styles.progressBarOuter} title="Progreso total del job (descarga + conversión)">
                   <div style={{ ...styles.progressBarInner, width: `${Math.min(100, job.percent).toFixed(2)}%`, background: 'linear-gradient(90deg,#0ea5e9,#6366f1)' }} />
                 </div>
+                {stems && (
+                  <>
+                    <div style={styles.labelRow}><span style={styles.barLabel}>Separación</span><span style={styles.barValue}>{Math.round(stems.sepPercent ?? 0)}% {stems.sepMessage || ''}</span></div>
+                    <div style={styles.progressBarOuter} title="Progreso de separación">
+                      <div style={{ ...styles.progressBarInner, width: `${Math.min(100, stems.sepPercent ?? 0).toFixed(2)}%`, background: '#22c55e' }} />
+                    </div>
+                  </>
+                )}
               </div>
+              {stems?.stems?.length ? (
+                <div style={styles.stemsWrapper}>
+                  <div style={styles.stemsHeader}>Pistas separadas</div>
+                  <ul style={styles.stemsList}>
+                    {stems.stems.map(s => (
+                      <li key={s.file} style={styles.stemItem}>
+                        <span>{s.name}</span>
+                        <Button size="sm" variant="secondary" onClick={() => window.open(`${getApiBase()}${s.downloadUrl}`, '_blank')}>⬇</Button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
             </li>
           );
         })}
@@ -174,7 +234,6 @@ export const JobQueue: React.FC<JobQueueProps> = ({ refreshMs = 1200 }) => {
           else await forceDeleteJob(confirmState.jobId);
           await fetchJobs();
         } catch (e) {
-          // eslint-disable-next-line no-console
           console.error(e);
         } finally {
           setDeleting(false);
@@ -236,7 +295,11 @@ const styles: Record<string, React.CSSProperties> = {
   barLabel: { fontWeight: 500 },
   barValue: { fontVariantNumeric: 'tabular-nums' },
   globalWrapper: { marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 },
-  globalLabel: { fontSize: 10, opacity: 0.7 }
+  globalLabel: { fontSize: 10, opacity: 0.7 },
+  stemsWrapper: { marginTop: 10, paddingTop: 10, borderTop: '1px solid #334155' },
+  stemsHeader: { fontSize: 12, marginBottom: 6, opacity: 0.85 },
+  stemsList: { listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 6 },
+  stemItem: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#0b1220', padding: '6px 8px', borderRadius: 6 }
 };
 
 export default JobQueue;
