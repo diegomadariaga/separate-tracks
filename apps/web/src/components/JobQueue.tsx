@@ -34,14 +34,75 @@ export const JobQueue: React.FC<JobQueueProps> = ({ refreshMs = 1200 }) => {
     const es = new EventSource(`${base}/youtube/stream`);
     sseRef.current = es;
     es.addEventListener('init', (e: MessageEvent) => {
-      try { setJobs(JSON.parse(e.data)); } catch {}
+      try {
+        type SSEItem = Partial<QueueJobSummary> & { result?: { fileName?: string } } & { hasFile?: boolean; file?: string; createdAt?: number; updatedAt?: number };
+        const arr: SSEItem[] = JSON.parse(e.data);
+        const normalized = arr.map((j) => {
+          const base: QueueJobSummary = {
+            id: j.id!,
+            state: j.state || 'queued',
+            percent: j.percent ?? 0,
+            message: j.message,
+            title: j.title,
+            durationSeconds: j.durationSeconds,
+            thumbnailUrl: j.thumbnailUrl,
+            author: j.author,
+            createdAt: j.createdAt ?? Date.now(),
+            updatedAt: j.updatedAt ?? Date.now(),
+            downloadPercent: j.downloadPercent,
+            convertPercent: j.convertPercent,
+            stagePercent: j.stagePercent,
+            downloadEtaSeconds: j.downloadEtaSeconds,
+            convertEtaSeconds: j.convertEtaSeconds,
+            hasFile: false,
+          } as QueueJobSummary;
+          if (j?.result?.fileName) {
+            base.file = j.result.fileName;
+            base.hasFile = true;
+          } else if (typeof j.hasFile === 'boolean') {
+            base.hasFile = j.hasFile;
+            base.file = j.file;
+          }
+          return base;
+        }).sort((a,b)=> b.createdAt - a.createdAt);
+        setJobs(normalized);
+      } catch {}
     });
     es.addEventListener('job', (e: MessageEvent) => {
       try {
-        const job = JSON.parse(e.data) as QueueJobSummary;
+        type Incoming = Partial<QueueJobSummary> & { result?: { fileName?: string } } & { createdAt?: number; updatedAt?: number };
+        const incoming: Incoming = JSON.parse(e.data);
         setJobs(prev => {
+          if (!incoming.id) return prev;
           const map = new Map(prev.map(j => [j.id, j] as const));
-          map.set(job.id, { ...map.get(job.id), ...job });
+          const prevJob = map.get(incoming.id) as Partial<QueueJobSummary> | undefined;
+          const patch: Partial<QueueJobSummary> = {
+            id: incoming.id,
+            state: incoming.state,
+            percent: typeof incoming.percent === 'number' ? incoming.percent : prevJob?.percent ?? 0,
+            message: incoming.message ?? prevJob?.message,
+            title: incoming.title ?? prevJob?.title,
+            durationSeconds: incoming.durationSeconds ?? prevJob?.durationSeconds,
+            thumbnailUrl: incoming.thumbnailUrl ?? prevJob?.thumbnailUrl,
+            author: incoming.author ?? prevJob?.author,
+            createdAt: prevJob?.createdAt ?? incoming.createdAt ?? Date.now(),
+            updatedAt: incoming.updatedAt ?? Date.now(),
+            downloadPercent: incoming.downloadPercent ?? prevJob?.downloadPercent,
+            convertPercent: incoming.convertPercent ?? prevJob?.convertPercent,
+            stagePercent: incoming.stagePercent ?? prevJob?.stagePercent,
+            downloadEtaSeconds: incoming.downloadEtaSeconds ?? prevJob?.downloadEtaSeconds,
+            convertEtaSeconds: incoming.convertEtaSeconds ?? prevJob?.convertEtaSeconds,
+          } as Partial<QueueJobSummary>;
+          // Normalizar archivo/hasFile desde result en SSE
+          if (incoming?.result?.fileName) {
+            patch.file = incoming.result.fileName;
+            patch.hasFile = true;
+          } else if (typeof prevJob?.hasFile === 'boolean') {
+            patch.hasFile = prevJob.hasFile;
+            patch.file = prevJob.file;
+          }
+          const next = { ...prevJob, ...patch } as QueueJobSummary;
+          map.set(next.id, next);
           return Array.from(map.values()).sort((a,b)=> b.createdAt - a.createdAt);
         });
       } catch {}
@@ -158,7 +219,7 @@ export const JobQueue: React.FC<JobQueueProps> = ({ refreshMs = 1200 }) => {
                       onClick={() => openDownload(job.file!)}
                     >⬇</Button>
                   )}
-                  {job.hasFile && (
+                  {(job.state === 'done' || job.hasFile) && (
                     <Button
                       aria-label="Separar pistas"
                       title="Separar pistas"
