@@ -69,11 +69,44 @@ export class YoutubeService implements OnModuleInit {
   private sseClients = new Set<import('http').ServerResponse>();
   private lastBroadcast: Record<string, number> = {};
 
+  private serializeJob(job: JobProgress) {
+    const base: any = {
+      id: job.id,
+      state: job.state,
+      percent: Number(job.percent.toFixed(2)),
+      message: job.message,
+      file: job.result?.fileName,
+      title: job.title || job.result?.title,
+      durationSeconds: job.durationSeconds || job.result?.durationSeconds,
+      thumbnailUrl: (job as any).thumbnailUrl,
+      author: (job as any).author,
+      hasFile: !!job.result,
+      createdAt: job.createdAt,
+      updatedAt: job.updatedAt,
+      downloadPercent: job.downloadPercent != null ? Number(job.downloadPercent.toFixed(2)) : undefined,
+      convertPercent: job.convertPercent != null ? Number(job.convertPercent.toFixed(2)) : undefined,
+      stagePercent: job.stagePercent != null ? Number(job.stagePercent.toFixed(2)) : undefined,
+      downloadEtaSeconds: job.downloadEtaSeconds != null ? Math.round(job.downloadEtaSeconds) : undefined,
+      convertEtaSeconds: job.convertEtaSeconds != null ? Math.round(job.convertEtaSeconds) : undefined,
+    };
+    // Opcional: incluir result completo si está done
+    if (job.state === 'done' && job.result) {
+      base.result = {
+        file: job.result.fileName,
+        sizeBytes: job.result.sizeBytes,
+        title: job.result.title,
+        durationSeconds: job.result.durationSeconds,
+        downloadUrl: `/youtube/download/${encodeURIComponent(job.result.fileName)}`
+      };
+    }
+    return base;
+  }
+
   registerSseClient(res: import('http').ServerResponse) {
     this.logger.debug('Registrando nuevo cliente SSE');
     this.sseClients.add(res);
     res.on('close', () => this.sseClients.delete(res));
-    const snapshot = this.listJobs();
+    const snapshot = this.listJobs().map(j => this.serializeJob(j));
     res.write('event: init\n');
     res.write(`data: ${JSON.stringify(snapshot)}\n\n`);
     this.logger.debug(`Enviado snapshot inicial (${snapshot.length} jobs) a cliente SSE`);
@@ -86,7 +119,7 @@ export class YoutubeService implements OnModuleInit {
     const now = Date.now();
     if (this.lastBroadcast[job.id] && now - this.lastBroadcast[job.id] < 150) return; // throttle
     this.lastBroadcast[job.id] = now;
-    const payload = { ...job };
+    const payload = this.serializeJob(job);
     for (const client of this.sseClients) {
       try {
         client.write('event: job\n');
